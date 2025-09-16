@@ -22,9 +22,11 @@ go get -u bitbucket.org/teamscript/go-llm@latest
 
 Before using the library, you need to set up API keys for the providers you want to use:
 
-- **OpenAI**: `OPENAI_TOKEN` - Your OpenAI API key
-- **Google AI Studio**: `GOOGLE_AI_STUDIO_KEY` - Your Google AI Studio API key
-- **Together AI**: `TOGETHER_AI_TOKEN` - Your Together AI API key
+| Provider | Environment |
+|---|---|
+| OpenAI | `OPENAI_TOKEN` |
+| Google AI Studio | `GOOGLE_AI_STUDIO_KEY` |
+| Together AI | `TOGETHER_AI_TOKEN` |
 
 ## Quick Start
 
