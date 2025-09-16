@@ -6,11 +6,11 @@ The following providers and features are supported:
 
 | | [OpenAi](https://openai.com/) | [Google Ai Studio](https://aistudio.google.com/) | [TogetherAi](https://www.together.ai/) |
 |---|---|---|---|
-| Completions | x | x | x |
-| Structured output (json) | x | x | x |
+| Completions | ✔️ | ✔️ | ✔️ |
+| Structured output (json) | ✔️ | ✔️ | ✔️ |
 | Structured output (json schema) | | | |
-| Streaming | x | | |
-| Tools | x | | |
+| Streaming | ✔️ | | |
+| Tools | ✔️ | | |
 
 ## Installation
 
