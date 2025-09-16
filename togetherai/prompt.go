@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 
 	"bitbucket.org/teamscript/go-llm"
+	apikey "bitbucket.org/teamscript/go-llm/apikeys"
 )
 
 type Provider struct{}
@@ -65,9 +65,9 @@ func (*Provider) Prompt(model string, messages []llm.Message, opts llm.Options) 
 		return "", fmt.Errorf("creating request: %s", err.Error())
 	}
 
-	apiKey := os.Getenv("TOGETHER_AI_TOKEN")
-	if apiKey == "" {
-		return "", errors.New("TOGETHER_AI_TOKEN environment variable not set")
+	apiKey, err := apikey.TogetherAi()
+	if err != nil {
+		return "", err
 	}
 
 	req.Header.Set("Authorization", "Bearer "+apiKey)

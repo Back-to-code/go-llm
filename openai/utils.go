@@ -4,11 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"time"
+
+	apikey "bitbucket.org/teamscript/go-llm/apikeys"
 )
 
 func newRequest(path string, body any, timeout time.Duration, ctx context.Context) (*http.Response, error) {
@@ -29,9 +29,9 @@ func newRequest(path string, body any, timeout time.Duration, ctx context.Contex
 		return nil, fmt.Errorf("error creating request: %v", err)
 	}
 
-	apiKey := os.Getenv("OPENAI_TOKEN")
-	if apiKey == "" {
-		return nil, errors.New("OPENAI_TOKEN environment variable not set")
+	apiKey, err := apikey.OpenAi()
+	if err != nil {
+		return nil, err
 	}
 
 	// Add headers

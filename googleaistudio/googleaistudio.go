@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 
 	"bitbucket.org/teamscript/go-llm"
+	apikey "bitbucket.org/teamscript/go-llm/apikeys"
 )
 
 type Provider struct{}
@@ -59,9 +59,9 @@ func (*Provider) SupportsTools() bool {
 }
 
 func (*Provider) Prompt(model string, messages []llm.Message, opts llm.Options) (string, error) {
-	apiKey := os.Getenv("GOOGLE_AI_STUDIO_KEY")
-	if apiKey == "" {
-		return "", errors.New("GOOGLE_AI_STUDIO_KEY environment variable not set")
+	apiKey, err := apikey.GoogleAiStudio()
+	if err != nil {
+		return "", err
 	}
 
 	content := []Content{}
