@@ -23,14 +23,16 @@ var (
 	// Should be used if the mini model is not good enough.
 	// By deafult the models use the lowest option of thinking (so no thinking in most cases), the level of thinking can be enabled inside llm.Options
 	// = PRICY - ULTRA EXPENSIVE
-	ChatGpt5 = register("gpt-5", &openai.Provider{})
-	Best     = ChatGpt5 // <- Deafult
+	ChatGpt5   = register("gpt-5.2", &openai.Provider{})
+	Gemini3Pro = register("gemini-3-pro-preview", &googleaistudio.Provider{})
+	Best       = ChatGpt5 // <- Deafult
 
 	// Mini models.
 	// When the nano model is not good enough but the good model is somewhat too expensive
 	// This is most of the time a good middleground
 	// = CHEAP
 	ChatGpt5Mini = register("gpt-5-mini", &openai.Provider{})
+	Gemini3Flash = register("gemini-3-flash-preview", &googleaistudio.Provider{})
 	Mini         = ChatGpt5Mini // <- Deafult
 
 	// Default nano model.
