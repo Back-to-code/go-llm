@@ -60,7 +60,7 @@ type InferenceRequest struct {
 	Store               bool           `json:"store"`
 	Tools               []llm.Tool     `json:"tools"`
 	ToolChoice          string         `json:"tool_choice,omitempty"`
-	ReasoningEffort     string         `json:"reasoning_effort"`
+	ReasoningEffort     string         `json:"reasoning_effort,omitempty"`
 }
 
 func createRequest(stream bool, model string, messages []llm.Message, options llm.Options) (io.ReadCloser, error) {
@@ -74,16 +74,6 @@ func createRequest(stream bool, model string, messages []llm.Message, options ll
 		responseFormat = string(options.ResponseFormat)
 	}
 
-	reasoningEffort := "minimal"
-	switch options.Thinking {
-	case llm.LowThinking:
-		reasoningEffort = "low"
-	case llm.MediumThinking:
-		reasoningEffort = "medium"
-	case llm.HighThinking:
-		reasoningEffort = "high"
-	}
-
 	reqBody := InferenceRequest{
 		Stream:          stream,
 		Model:           model,
@@ -91,7 +81,7 @@ func createRequest(stream bool, model string, messages []llm.Message, options ll
 		ResponseFormat:  ResponseFormat{responseFormat},
 		Store:           false,
 		Tools:           options.Tools,
-		ReasoningEffort: reasoningEffort,
+		ReasoningEffort: reasoningEffort(model, options.Thinking),
 	}
 
 	if len(options.Tools) > 0 {

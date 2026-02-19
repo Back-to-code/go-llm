@@ -42,8 +42,9 @@ type SystemInstruction struct {
 }
 
 type GenerationConfig struct {
-	MaxOutputTokens  int    `json:"maxOutputTokens,omitempty"`
-	ResponseMimeType string `json:"response_mime_type,omitempty"`
+	MaxOutputTokens  int             `json:"maxOutputTokens,omitempty"`
+	ResponseMimeType string          `json:"response_mime_type,omitempty"`
+	ThinkingConfig   *ThinkingConfig `json:"thinkingConfig,omitempty"`
 }
 
 func (*Provider) SupportsStructuredOutput() bool {
@@ -108,6 +109,7 @@ func (*Provider) Prompt(model string, messages []llm.Message, opts llm.Options) 
 		GenerationConfig: GenerationConfig{
 			MaxOutputTokens:  opts.MaxTokens,
 			ResponseMimeType: responseMimeType,
+			ThinkingConfig:   getThinkingConfig(model, opts.Thinking),
 		},
 	}
 

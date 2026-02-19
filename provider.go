@@ -25,6 +25,7 @@ type Thinking uint8
 
 const (
 	NoThinking Thinking = iota
+	MinimalThinking
 	LowThinking
 	MediumThinking
 	HighThinking
