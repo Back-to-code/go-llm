@@ -9,8 +9,8 @@ import (
 	"net/http"
 	"strings"
 
-	"bitbucket.org/teamscript/go-llm"
-	"bitbucket.org/teamscript/go-llm/log"
+	"github.com/Back-to-code/go-llm"
+	"github.com/Back-to-code/go-llm/log"
 )
 
 func toMessage(s llm.Message) Message {

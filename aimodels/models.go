@@ -1,9 +1,9 @@
 package aimodels
 
 import (
-	"bitbucket.org/teamscript/go-llm"
-	"bitbucket.org/teamscript/go-llm/googleaistudio"
-	"bitbucket.org/teamscript/go-llm/openai"
+	"github.com/Back-to-code/go-llm"
+	"github.com/Back-to-code/go-llm/googleaistudio"
+	"github.com/Back-to-code/go-llm/openai"
 )
 
 var models = map[string]*llm.Model{}

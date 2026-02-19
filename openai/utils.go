@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	apikey "bitbucket.org/teamscript/go-llm/apikeys"
+	apikey "github.com/Back-to-code/go-llm/apikeys"
 )
 
 func newRequest(path string, body any, timeout time.Duration, ctx context.Context) (*http.Response, error) {

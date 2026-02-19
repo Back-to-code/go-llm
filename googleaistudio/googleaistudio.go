@@ -8,8 +8,8 @@ import (
 	"io"
 	"net/http"
 
-	"bitbucket.org/teamscript/go-llm"
-	apikey "bitbucket.org/teamscript/go-llm/apikeys"
+	"github.com/Back-to-code/go-llm"
+	apikey "github.com/Back-to-code/go-llm/apikeys"
 )
 
 type Provider struct{}

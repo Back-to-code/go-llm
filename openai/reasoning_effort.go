@@ -3,7 +3,7 @@ package openai
 import (
 	"strings"
 
-	"bitbucket.org/teamscript/go-llm"
+	"github.com/Back-to-code/go-llm"
 )
 
 func reasoningEffort(model string, thinking llm.Thinking) string {

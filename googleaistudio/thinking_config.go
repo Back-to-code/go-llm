@@ -3,7 +3,7 @@ package googleaistudio
 import (
 	"strings"
 
-	"bitbucket.org/teamscript/go-llm"
+	"github.com/Back-to-code/go-llm"
 )
 
 type ThinkingConfig struct {

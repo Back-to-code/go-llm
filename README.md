@@ -4,31 +4,31 @@ A abstraction layer for communicating with LLM providers.
 
 The following providers and features are supported:
 
-| | [OpenAi](https://openai.com/) | [Google Ai Studio](https://aistudio.google.com/) | [TogetherAi](https://www.together.ai/) |
-|---|---|---|---|
-| Completions | ✔️ | ✔️ | ✔️ |
-| Structured output (json) | ✔️ | ✔️ | ✔️ |
-| Structured output (json schema) | | | |
-| Streaming | ✔️ | | |
-| Tools | ✔️ | | |
+|                                 | [OpenAi](https://openai.com/) | [Google Ai Studio](https://aistudio.google.com/) | [TogetherAi](https://www.together.ai/) |
+| ------------------------------- | ----------------------------- | ------------------------------------------------ | -------------------------------------- |
+| Completions                     | ✔️                            | ✔️                                               | ✔️                                     |
+| Structured output (json)        | ✔️                            | ✔️                                               | ✔️                                     |
+| Structured output (json schema) |                               |                                                  |                                        |
+| Streaming                       | ✔️                            |                                                  |                                        |
+| Tools                           | ✔️                            |                                                  |                                        |
 
 DO NOT MAKE THIS REPO PRIVATE! This library can now be easially imported from other go project without having to configured annoying shell variables.
 
 ## Installation
 
 ```bash
-go get -u bitbucket.org/teamscript/go-llm@latest
+go get -u github.com/Back-to-code/go-llm@latest
 ```
 
 ## Environment Variables
 
 Before using the library, you need to set up API keys for the providers you want to use:
 
-| Provider | Environment |
-|---|---|
-| OpenAI | `OPENAI_TOKEN` |
+| Provider         | Environment            |
+| ---------------- | ---------------------- |
+| OpenAI           | `OPENAI_TOKEN`         |
 | Google AI Studio | `GOOGLE_AI_STUDIO_KEY` |
-| Together AI | `TOGETHER_AI_TOKEN` |
+| Together AI      | `TOGETHER_AI_TOKEN`    |
 
 ## Quick Start
 
@@ -40,8 +40,8 @@ import (
     "log"
     "os"
 
-    "bitbucket.org/teamscript/go-llm"
-    "bitbucket.org/teamscript/go-llm/aimodels"
+    "github.com/Back-to-code/go-llm"
+    "github.com/Back-to-code/go-llm/aimodels"
 )
 
 func main() {

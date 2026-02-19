@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"time"
 
-	"bitbucket.org/teamscript/go-llm/cache"
-	"bitbucket.org/teamscript/go-llm/log"
+	"github.com/Back-to-code/go-llm/cache"
+	"github.com/Back-to-code/go-llm/log"
 )
 
 var DefaultCacheDuration = time.Hour * 24
