@@ -151,8 +151,8 @@ func (p *Provider) Prompt(model string, messages []llm.Message, options llm.Opti
 			Id       string `json:"id"`
 			Type     string `json:"type"`
 			Function *struct {
-				Name      string          `json:"name"`
-				Arguments json.RawMessage `json:"arguments"`
+				Name      string `json:"name"`
+				Arguments string `json:"arguments"`
 			} `json:"function"`
 		} `json:"tool_calls"`
 	}
@@ -173,22 +173,29 @@ func (p *Provider) Prompt(model string, messages []llm.Message, options llm.Opti
 			ToolCalls: jsonTools,
 		})
 
-		for _, tool := range tools {
-			if tool.Type != "function" {
-				return "", errors.New("unsupported tool type " + tool.Type)
+		for _, toolCall := range tools {
+			if toolCall.Type != "function" {
+				return "", errors.New("unsupported tool type " + toolCall.Type)
 			}
-			if tool.Function == nil {
+			if toolCall.Function == nil {
 				return "", errors.New("missing function")
 			}
 
 			foundTool := false
 			var response any
 			var err error
-			log.Info("llm tool call " + tool.Function.Name)
+			log.Info("llm tool call " + toolCall.Function.Name)
 			for _, tool := range options.Tools {
-				if tool.Function.Name == tool.Function.Name {
+				if toolCall.Function.Name == tool.Function.Name {
 					foundTool = true
-					response, err = tool.Resolver(tool.Function.Parameters)
+
+					var arguments json.RawMessage
+					err := json.Unmarshal([]byte(toolCall.Function.Arguments), &arguments)
+					if err != nil {
+						arguments = json.RawMessage("null")
+					}
+
+					response, err = tool.Resolver(arguments)
 					break
 				}
 			}
@@ -196,7 +203,7 @@ func (p *Provider) Prompt(model string, messages []llm.Message, options llm.Opti
 				messages = append(messages, llm.Message{
 					Role:       "tool",
 					Content:    "error: not found",
-					ToolCallId: tool.Id,
+					ToolCallId: toolCall.Id,
 				})
 				continue
 			}
@@ -205,7 +212,7 @@ func (p *Provider) Prompt(model string, messages []llm.Message, options llm.Opti
 				messages = append(messages, llm.Message{
 					Role:       "tool",
 					Content:    "error: " + err.Error(),
-					ToolCallId: tool.Id,
+					ToolCallId: toolCall.Id,
 				})
 				continue
 			}
@@ -215,7 +222,7 @@ func (p *Provider) Prompt(model string, messages []llm.Message, options llm.Opti
 				messages = append(messages, llm.Message{
 					Role:       "tool",
 					Content:    "error: " + err.Error(),
-					ToolCallId: tool.Id,
+					ToolCallId: toolCall.Id,
 				})
 				continue
 			}
@@ -223,7 +230,7 @@ func (p *Provider) Prompt(model string, messages []llm.Message, options llm.Opti
 			messages = append(messages, llm.Message{
 				Role:       "tool",
 				Content:    string(responseJson),
-				ToolCallId: tool.Id,
+				ToolCallId: toolCall.Id,
 			})
 		}
 
