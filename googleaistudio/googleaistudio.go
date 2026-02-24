@@ -21,9 +21,7 @@ type ResponseFormat struct {
 type Response struct {
 	Candidates []struct {
 		Content struct {
-			Parts []struct {
-				Text string `json:"text"`
-			} `json:"parts"`
+			Parts []Part `json:"parts"`
 		} `json:"content"`
 	} `json:"candidates"`
 }
@@ -34,7 +32,10 @@ type Content struct {
 }
 
 type Part struct {
-	Text string `json:"text"`
+	Text             string            `json:"text,omitempty"`
+	FunctionCall     *FunctionCall     `json:"functionCall,omitempty"`
+	FunctionResponse *FunctionResponse `json:"functionResponse,omitempty"`
+	ThoughtSignature string            `json:"thoughtSignature,omitempty"`
 }
 
 type SystemInstruction struct {
@@ -56,35 +57,94 @@ func (*Provider) SupportsStreaming() bool {
 }
 
 func (*Provider) SupportsTools() bool {
-	return false
+	return true
 }
 
-func (*Provider) Prompt(model string, messages []llm.Message, opts llm.Options) (string, error) {
-	apiKey, err := apikey.GoogleAiStudio()
+func (p *Provider) Prompt(model string, messages []llm.Message, opts llm.Options) (string, error) {
+	chatResponse, err := p.doRequest(model, messages, opts)
 	if err != nil {
 		return "", err
 	}
 
-	content := []Content{}
-	systemParts := []Part{}
-	for _, message := range messages {
-		role := ""
-		switch message.Role {
-		case "user":
-			role = "user"
-		case "assistant":
-			role = "model"
-		case "system":
-			systemParts = append(systemParts, Part{message.Content})
-			continue
-		default:
-			return "", errors.New(message.Role + " role currently not supported for gemini")
+	candidates := chatResponse.Candidates
+	if len(candidates) == 0 {
+		return "", errors.New("chat did not return any results")
+	}
+
+	parts := candidates[len(candidates)-1].Content.Parts
+	if len(parts) == 0 {
+		return "", errors.New("chat did not return any result parts")
+	}
+
+	// Check if the model is requesting function calls
+	var functionParts []Part
+	for _, part := range parts {
+		if part.FunctionCall != nil {
+			functionParts = append(functionParts, part)
+		}
+	}
+
+	if len(functionParts) > 0 {
+		// Store the function calls on the assistant message so they can be
+		// reconstructed into functionCall parts on the next round-trip.
+		toolCallsJson, err := json.Marshal(functionParts)
+		if err != nil {
+			return "", fmt.Errorf("marshaling function calls: %w", err)
+		}
+		messages = append(messages, llm.Message{
+			Role:      "assistant",
+			ToolCalls: toolCallsJson,
+		})
+
+		// Resolve each function call
+		responses, err := resolveToolCalls(functionParts, opts.Tools)
+		if err != nil {
+			return "", fmt.Errorf("resolving tool calls: %w", err)
 		}
 
-		content = append(content, Content{
-			Role:  role,
-			Parts: []Part{{message.Content}},
-		})
+		// Append each result as a "tool" message. We use ToolCallId to carry
+		// the function name (Gemini has no call IDs — it matches by name).
+		for _, resp := range responses {
+			responseJson, err := json.Marshal(resp.Response)
+			if err != nil {
+				responseJson = []byte(`{"error":"failed to marshal response"}`)
+			}
+			messages = append(messages, llm.Message{
+				Role:       "tool",
+				Content:    string(responseJson),
+				ToolCallId: resp.Name,
+			})
+		}
+
+		// Continue the conversation
+		return p.Prompt(model, messages, opts)
+	}
+
+	// No function calls — return the text response
+	var text string
+	for _, part := range parts {
+		if part.Text != "" {
+			text += part.Text
+		}
+	}
+	if text == "" {
+		return "", errors.New("chat did not return any text content")
+	}
+	return text, nil
+}
+
+// doRequest builds and sends a single generateContent request, returning the
+// parsed response. This is separated from Prompt so the tool-call loop can
+// call it repeatedly without duplicating HTTP logic.
+func (*Provider) doRequest(model string, messages []llm.Message, opts llm.Options) (*Response, error) {
+	apiKey, err := apikey.GoogleAiStudio()
+	if err != nil {
+		return nil, err
+	}
+
+	contents, systemParts, err := convertMessages(messages)
+	if err != nil {
+		return nil, err
 	}
 
 	var systemInstruction *SystemInstruction
@@ -99,23 +159,28 @@ func (*Provider) Prompt(model string, messages []llm.Message, opts llm.Options) 
 		responseMimeType = "application/json"
 	}
 
+	// Build tools and tool_config if tools are provided
+	geminiTools := convertTools(opts.Tools)
+
 	requestPayload := struct {
 		SystemInstruction *SystemInstruction `json:"system_instruction,omitempty"`
 		Contents          []Content          `json:"contents"`
 		GenerationConfig  GenerationConfig   `json:"generationConfig"`
+		Tools             []GeminiTool       `json:"tools,omitempty"`
 	}{
 		SystemInstruction: systemInstruction,
-		Contents:          content,
+		Contents:          contents,
 		GenerationConfig: GenerationConfig{
 			MaxOutputTokens:  opts.MaxTokens,
 			ResponseMimeType: responseMimeType,
 			ThinkingConfig:   getThinkingConfig(model, opts.Thinking),
 		},
+		Tools: geminiTools,
 	}
 
 	requestPayloadBytes, err := json.Marshal(requestPayload)
 	if err != nil {
-		return "", fmt.Errorf("marshaling payload: %s", err.Error())
+		return nil, fmt.Errorf("marshaling payload: %s", err.Error())
 	}
 	requestBody := bytes.NewReader(requestPayloadBytes)
 
@@ -128,45 +193,33 @@ func (*Provider) Prompt(model string, messages []llm.Message, opts llm.Options) 
 		req, err = http.NewRequestWithContext(opts.Ctx, method, url, requestBody)
 	}
 	if err != nil {
-		return "", fmt.Errorf("creating request: %s", err.Error())
+		return nil, fmt.Errorf("creating request: %s", err.Error())
 	}
 
 	req.Header.Set("Content-Type", "application/json")
 
-	client := http.Client{
-		Timeout: opts.Timeout,
-	}
+	client := http.Client{Timeout: opts.Timeout}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("sending request: %s", err.Error())
+		return nil, fmt.Errorf("sending request: %s", err.Error())
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, err := io.ReadAll(resp.Body)
 		if err != nil {
-			return "", fmt.Errorf("reading response body: %s", err.Error())
+			return nil, fmt.Errorf("reading response body: %s", err.Error())
 		}
-		return "", errors.New(string(respBody))
+		return nil, errors.New(string(respBody))
 	}
 
 	chatResponse := Response{}
 	err = json.NewDecoder(resp.Body).Decode(&chatResponse)
 	if err != nil {
-		return "", fmt.Errorf("failed to decode body: %s", err.Error())
+		return nil, fmt.Errorf("failed to decode body: %s", err.Error())
 	}
 
-	candidates := chatResponse.Candidates
-	if len(candidates) == 0 {
-		return "", errors.New("chat did not return any results")
-	}
-
-	parts := candidates[len(candidates)-1].Content.Parts
-	if len(parts) == 0 {
-		return "", errors.New("chat did not return any result parts")
-	}
-
-	return parts[len(parts)-1].Text, nil
+	return &chatResponse, nil
 }
 
 func (*Provider) Stream(model string, messages []llm.Message, opts llm.Options) (chan string, error) {

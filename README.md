@@ -10,7 +10,7 @@ The following providers and features are supported:
 | Structured output (json)        | ✔️                            | ✔️                                               | ✔️                                     |
 | Structured output (json schema) |                               |                                                  |                                        |
 | Streaming                       | ✔️                            |                                                  |                                        |
-| Tools                           | ✔️                            |                                                  |                                        |
+| Tools                           | ✔️                            | ✔️                                               |                                        |
 
 DO NOT MAKE THIS REPO PRIVATE! This library can now be easially imported from other go project without having to configured annoying shell variables.
 
