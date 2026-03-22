@@ -59,9 +59,6 @@ func (o Options) prepare(isStream bool, provider Provider) (Options, error) {
 	if o.Timeout <= 0 {
 		o.Timeout = time.Second * 30
 	}
-	if o.MaxTokens <= 0 {
-		o.MaxTokens = 4096
-	}
 	for idx, tool := range o.Tools {
 		if tool.Resolver == nil {
 			return o, fmt.Errorf("tool %s (#%d) is missing a resolver", tool.Function.Name, idx+1)
@@ -76,7 +73,7 @@ func (o Options) prepare(isStream bool, provider Provider) (Options, error) {
 }
 
 type Provider interface {
-	Prompt(model string, messages []Message, options Options) (string, error)
+	Prompt(model string, messages []Message, options Options) (Response, error)
 	Stream(model string, messages []Message, options Options) (chan string, error)
 	SupportsStructuredOutput() bool
 	SupportsStreaming() bool
@@ -88,11 +85,11 @@ type Model struct {
 	Provider Provider
 }
 
-func (m *Model) Prompt(messages []Message, options Options) (string, error) {
+func (m *Model) Prompt(messages []Message, options Options) (Response, error) {
 	var err error
 	options, err = options.prepare(false, m.Provider)
 	if err != nil {
-		return "", err
+		return Response{}, err
 	}
 
 	retries := 5
@@ -109,15 +106,18 @@ func (m *Model) Prompt(messages []Message, options Options) (string, error) {
 			cacheKey = m.Name + ":" + hex.EncodeToString(cacheKeyHash.Sum(nil))
 			cachedResponse, err := cache.Get(cacheKey)
 			if err == nil && cachedResponse != "" {
-				return cachedResponse, nil
+				return Response{
+					Value:        cachedResponse,
+					Conversation: messages,
+				}, nil
 			}
 		}
 	}
 
-	var resp string
+	var resp Response
 	for i := 0; i < retries; i++ {
 		if options.Ctx != nil && options.Ctx.Err() != nil {
-			return "", options.Ctx.Err()
+			return Response{}, options.Ctx.Err()
 		}
 
 		resp, err = m.Provider.Prompt(m.Name, messages, options)
@@ -126,7 +126,7 @@ func (m *Model) Prompt(messages []Message, options Options) (string, error) {
 		}
 
 		if cacheKey != "" {
-			cache.Set(cacheKey, resp, options.Cache)
+			cache.Set(cacheKey, resp.Value, options.Cache)
 		}
 		return resp, err
 	}
@@ -135,7 +135,7 @@ func (m *Model) Prompt(messages []Message, options Options) (string, error) {
 }
 
 // PromptSingle is a wrapper around prompt but only prompt 1 user message
-func (m *Model) PromptSingle(message string, options Options) (string, error) {
+func (m *Model) PromptSingle(message string, options Options) (Response, error) {
 	return m.Prompt([]Message{User(message)}, options)
 }
 

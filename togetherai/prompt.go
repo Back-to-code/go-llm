@@ -30,11 +30,11 @@ func (*Provider) SupportsTools() bool {
 	return false
 }
 
-func (*Provider) Prompt(model string, messages []llm.Message, opts llm.Options) (string, error) {
+func (*Provider) Prompt(model string, messages []llm.Message, opts llm.Options) (llm.Response, error) {
 	requestPayload := struct {
 		Messages       []llm.Message   `json:"messages"`
 		Model          string          `json:"model"`
-		MaxTokens      int             `json:"max_tokens"`
+		MaxTokens      int             `json:"max_tokens,omitempty"`
 		Stream         bool            `json:"stream"`
 		ResponseFormat *ResponseFormat `json:"responseFormat,omitempty"`
 	}{
@@ -49,7 +49,7 @@ func (*Provider) Prompt(model string, messages []llm.Message, opts llm.Options) 
 
 	requestPayloadBytes, err := json.Marshal(requestPayload)
 	if err != nil {
-		return "", fmt.Errorf("marshaling payload: %s", err.Error())
+		return llm.Response{}, fmt.Errorf("marshaling payload: %s", err.Error())
 	}
 	requestBody := bytes.NewReader(requestPayloadBytes)
 
@@ -62,12 +62,12 @@ func (*Provider) Prompt(model string, messages []llm.Message, opts llm.Options) 
 		req, err = http.NewRequestWithContext(opts.Ctx, method, url, requestBody)
 	}
 	if err != nil {
-		return "", fmt.Errorf("creating request: %s", err.Error())
+		return llm.Response{}, fmt.Errorf("creating request: %s", err.Error())
 	}
 
 	apiKey, err := apikey.TogetherAi()
 	if err != nil {
-		return "", err
+		return llm.Response{}, err
 	}
 
 	req.Header.Set("Authorization", "Bearer "+apiKey)
@@ -78,16 +78,16 @@ func (*Provider) Prompt(model string, messages []llm.Message, opts llm.Options) 
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("sending request: %s", err.Error())
+		return llm.Response{}, fmt.Errorf("sending request: %s", err.Error())
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, err := io.ReadAll(resp.Body)
 		if err != nil {
-			return "", err
+			return llm.Response{}, err
 		}
-		return "", errors.New(string(respBody))
+		return llm.Response{}, errors.New(string(respBody))
 	}
 
 	var responsePayload struct {
@@ -96,13 +96,32 @@ func (*Provider) Prompt(model string, messages []llm.Message, opts llm.Options) 
 				Content string `json:"content"`
 			} `json:"message"`
 		} `json:"choices"`
+		Usage struct {
+			PromptTokens     int `json:"prompt_tokens"`
+			CompletionTokens int `json:"completion_tokens"`
+		} `json:"usage"`
 	}
 	err = json.NewDecoder(resp.Body).Decode(&responsePayload)
 	if err != nil {
-		return "", fmt.Errorf("decoding response: %s", err.Error())
+		return llm.Response{}, fmt.Errorf("decoding response: %s", err.Error())
 	}
 
-	return responsePayload.Choices[0].Message.Content, nil
+	content := responsePayload.Choices[0].Message.Content
+
+	// Append the final assistant message to the conversation.
+	messages = append(messages, llm.Message{
+		Role:    "assistant",
+		Content: content,
+	})
+
+	return llm.Response{
+		Value:        content,
+		Conversation: messages,
+		Usage: llm.TokenUsage{
+			InputTokens:  responsePayload.Usage.PromptTokens,
+			OutputTokens: responsePayload.Usage.CompletionTokens,
+		},
+	}, nil
 }
 
 func (*Provider) Stream(model string, messages []llm.Message, opts llm.Options) (chan string, error) {

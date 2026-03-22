@@ -75,17 +75,18 @@ func createRequest(stream bool, model string, messages []llm.Message, options ll
 	}
 
 	reqBody := InferenceRequest{
-		Stream:          stream,
-		Model:           model,
-		Messages:        bodyMessages,
-		ResponseFormat:  ResponseFormat{responseFormat},
-		Store:           false,
-		Tools:           options.Tools,
-		ReasoningEffort: reasoningEffort(model, options.Thinking),
+		Stream:         stream,
+		Model:          model,
+		Messages:       bodyMessages,
+		ResponseFormat: ResponseFormat{responseFormat},
+		Store:          false,
+		Tools:          options.Tools,
 	}
 
 	if len(options.Tools) > 0 {
 		reqBody.ToolChoice = "auto"
+	} else {
+		reqBody.ReasoningEffort = reasoningEffort(model, options.Thinking)
 	}
 
 	reqBody.MaxCompletionTokens = options.MaxTokens
@@ -124,10 +125,10 @@ func (*Provider) SupportsTools() bool {
 	return true
 }
 
-func (p *Provider) Prompt(model string, messages []llm.Message, options llm.Options) (string, error) {
+func (p *Provider) Prompt(model string, messages []llm.Message, options llm.Options) (llm.Response, error) {
 	resp, err := createRequest(false, model, messages, options)
 	if err != nil {
-		return "", err
+		return llm.Response{}, err
 	}
 	defer resp.Close()
 
@@ -135,13 +136,26 @@ func (p *Provider) Prompt(model string, messages []llm.Message, options llm.Opti
 		Choices []struct {
 			Message json.RawMessage `json:"message"`
 		} `json:"choices"`
+		Usage struct {
+			PromptTokens        int `json:"prompt_tokens"`
+			CompletionTokens    int `json:"completion_tokens"`
+			PromptTokensDetails struct {
+				CachedTokens int `json:"cached_tokens"`
+			} `json:"prompt_tokens_details"`
+		} `json:"usage"`
 	}{}
 	err = json.NewDecoder(resp).Decode(&respContent)
 	if err != nil {
-		return "", err
+		return llm.Response{}, err
 	}
 	if len(respContent.Choices) == 0 {
-		return "", errors.New("no responses")
+		return llm.Response{}, errors.New("no responses")
+	}
+
+	currentUsage := llm.TokenUsage{
+		InputTokens:       respContent.Usage.PromptTokens,
+		OutputTokens:      respContent.Usage.CompletionTokens,
+		CachedInputTokens: respContent.Usage.PromptTokensDetails.CachedTokens,
 	}
 
 	rawLastMessage := respContent.Choices[len(respContent.Choices)-1].Message
@@ -158,7 +172,7 @@ func (p *Provider) Prompt(model string, messages []llm.Message, options llm.Opti
 	}
 	err = json.Unmarshal(rawLastMessage, &lastMessage)
 	if err != nil {
-		return "", fmt.Errorf("failed to unmarshal response: %s", err.Error())
+		return llm.Response{}, fmt.Errorf("failed to unmarshal response: %s", err.Error())
 	}
 
 	if len(lastMessage.ToolCalls) > 0 {
@@ -166,7 +180,7 @@ func (p *Provider) Prompt(model string, messages []llm.Message, options llm.Opti
 		var jsonTools []byte
 		jsonTools, err = json.Marshal(tools)
 		if err != nil {
-			return "", fmt.Errorf("failed to marshal tools: %s", err.Error())
+			return llm.Response{}, fmt.Errorf("failed to marshal tools: %s", err.Error())
 		}
 		messages = append(messages, llm.Message{
 			Role:      "assistant",
@@ -175,10 +189,10 @@ func (p *Provider) Prompt(model string, messages []llm.Message, options llm.Opti
 
 		for _, toolCall := range tools {
 			if toolCall.Type != "function" {
-				return "", errors.New("unsupported tool type " + toolCall.Type)
+				return llm.Response{}, errors.New("unsupported tool type " + toolCall.Type)
 			}
 			if toolCall.Function == nil {
-				return "", errors.New("missing function")
+				return llm.Response{}, errors.New("missing function")
 			}
 
 			foundTool := false
@@ -234,13 +248,33 @@ func (p *Provider) Prompt(model string, messages []llm.Message, options llm.Opti
 			})
 		}
 
-		return p.Prompt(model, messages, options)
+		// Recurse to continue the conversation after tool calls.
+		// Accumulate token usage from this round with the inner rounds.
+		innerResp, err := p.Prompt(model, messages, options)
+		if err != nil {
+			return llm.Response{}, err
+		}
+		innerResp.Usage.InputTokens += currentUsage.InputTokens
+		innerResp.Usage.OutputTokens += currentUsage.OutputTokens
+		innerResp.Usage.CachedInputTokens += currentUsage.CachedInputTokens
+		return innerResp, nil
 	}
 
 	if lastMessage.Content == nil {
-		return "", errors.New("missing content")
+		return llm.Response{}, errors.New("missing content")
 	}
-	return *lastMessage.Content, nil
+
+	// Append the final assistant message to the conversation.
+	messages = append(messages, llm.Message{
+		Role:    "assistant",
+		Content: *lastMessage.Content,
+	})
+
+	return llm.Response{
+		Value:        *lastMessage.Content,
+		Conversation: messages,
+		Usage:        currentUsage,
+	}, nil
 }
 
 func (*Provider) Stream(model string, messages []llm.Message, options llm.Options) (chan string, error) {

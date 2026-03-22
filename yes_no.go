@@ -2,7 +2,7 @@ package llm
 
 import "strings"
 
-func YesNo(resp string, err error) (bool, error) {
+func YesNo(resp Response, err error) (bool, error) {
 	if err != nil {
 		return false, err
 	}
@@ -13,10 +13,10 @@ func YesNo(resp string, err error) (bool, error) {
 		"ja",
 	}
 
-	resp = strings.ToLower(strings.Split(resp, "\n")[0])
+	value := strings.ToLower(strings.Split(resp.Value, "\n")[0])
 
 	for _, yesWord := range yesWords {
-		if strings.Contains(resp, yesWord) {
+		if strings.Contains(value, yesWord) {
 			return true, nil
 		}
 	}

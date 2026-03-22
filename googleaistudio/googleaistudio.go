@@ -24,6 +24,11 @@ type Response struct {
 			Parts []Part `json:"parts"`
 		} `json:"content"`
 	} `json:"candidates"`
+	UsageMetadata struct {
+		PromptTokenCount        int `json:"promptTokenCount"`
+		CandidatesTokenCount    int `json:"candidatesTokenCount"`
+		CachedContentTokenCount int `json:"cachedContentTokenCount"`
+	} `json:"usageMetadata"`
 }
 
 type Content struct {
@@ -60,20 +65,26 @@ func (*Provider) SupportsTools() bool {
 	return true
 }
 
-func (p *Provider) Prompt(model string, messages []llm.Message, opts llm.Options) (string, error) {
+func (p *Provider) Prompt(model string, messages []llm.Message, opts llm.Options) (llm.Response, error) {
 	chatResponse, err := p.doRequest(model, messages, opts)
 	if err != nil {
-		return "", err
+		return llm.Response{}, err
 	}
 
 	candidates := chatResponse.Candidates
 	if len(candidates) == 0 {
-		return "", errors.New("chat did not return any results")
+		return llm.Response{}, errors.New("chat did not return any results")
+	}
+
+	currentUsage := llm.TokenUsage{
+		InputTokens:       chatResponse.UsageMetadata.PromptTokenCount,
+		OutputTokens:      chatResponse.UsageMetadata.CandidatesTokenCount,
+		CachedInputTokens: chatResponse.UsageMetadata.CachedContentTokenCount,
 	}
 
 	parts := candidates[len(candidates)-1].Content.Parts
 	if len(parts) == 0 {
-		return "", errors.New("chat did not return any result parts")
+		return llm.Response{}, errors.New("chat did not return any result parts")
 	}
 
 	// Check if the model is requesting function calls
@@ -89,7 +100,7 @@ func (p *Provider) Prompt(model string, messages []llm.Message, opts llm.Options
 		// reconstructed into functionCall parts on the next round-trip.
 		toolCallsJson, err := json.Marshal(functionParts)
 		if err != nil {
-			return "", fmt.Errorf("marshaling function calls: %w", err)
+			return llm.Response{}, fmt.Errorf("marshaling function calls: %w", err)
 		}
 		messages = append(messages, llm.Message{
 			Role:      "assistant",
@@ -99,7 +110,7 @@ func (p *Provider) Prompt(model string, messages []llm.Message, opts llm.Options
 		// Resolve each function call
 		responses, err := resolveToolCalls(functionParts, opts.Tools)
 		if err != nil {
-			return "", fmt.Errorf("resolving tool calls: %w", err)
+			return llm.Response{}, fmt.Errorf("resolving tool calls: %w", err)
 		}
 
 		// Append each result as a "tool" message. We use ToolCallId to carry
@@ -116,8 +127,16 @@ func (p *Provider) Prompt(model string, messages []llm.Message, opts llm.Options
 			})
 		}
 
-		// Continue the conversation
-		return p.Prompt(model, messages, opts)
+		// Recurse to continue the conversation after tool calls.
+		// Accumulate token usage from this round with the inner rounds.
+		innerResp, err := p.Prompt(model, messages, opts)
+		if err != nil {
+			return llm.Response{}, err
+		}
+		innerResp.Usage.InputTokens += currentUsage.InputTokens
+		innerResp.Usage.OutputTokens += currentUsage.OutputTokens
+		innerResp.Usage.CachedInputTokens += currentUsage.CachedInputTokens
+		return innerResp, nil
 	}
 
 	// No function calls — return the text response
@@ -128,9 +147,20 @@ func (p *Provider) Prompt(model string, messages []llm.Message, opts llm.Options
 		}
 	}
 	if text == "" {
-		return "", errors.New("chat did not return any text content")
+		return llm.Response{}, errors.New("chat did not return any text content")
 	}
-	return text, nil
+
+	// Append the final assistant message to the conversation.
+	messages = append(messages, llm.Message{
+		Role:    "assistant",
+		Content: text,
+	})
+
+	return llm.Response{
+		Value:        text,
+		Conversation: messages,
+		Usage:        currentUsage,
+	}, nil
 }
 
 // doRequest builds and sends a single generateContent request, returning the
