@@ -183,21 +183,21 @@ func (p *Provider) Prompt(model string, messages []llm.Message, options llm.Opti
 
 			foundTool := false
 			var response any
-			var err error
+			var resolveErr error
 			log.Info("llm tool call " + toolCall.Function.Name)
 			for _, tool := range options.Tools {
-				if toolCall.Function.Name == tool.Function.Name {
-					foundTool = true
-
-					var arguments json.RawMessage
-					err := json.Unmarshal([]byte(toolCall.Function.Arguments), &arguments)
-					if err != nil {
-						arguments = json.RawMessage("null")
-					}
-
-					response, err = tool.Resolver(arguments)
-					break
+				if toolCall.Function.Name != tool.Function.Name {
+					continue
 				}
+				foundTool = true
+
+				var arguments json.RawMessage
+				if uerr := json.Unmarshal([]byte(toolCall.Function.Arguments), &arguments); uerr != nil {
+					arguments = json.RawMessage("null")
+				}
+
+				response, resolveErr = tool.Resolver(arguments)
+				break
 			}
 			if !foundTool {
 				messages = append(messages, llm.Message{
@@ -208,10 +208,10 @@ func (p *Provider) Prompt(model string, messages []llm.Message, options llm.Opti
 				continue
 			}
 
-			if err != nil {
+			if resolveErr != nil {
 				messages = append(messages, llm.Message{
 					Role:       "tool",
-					Content:    "error: " + err.Error(),
+					Content:    "error: " + resolveErr.Error(),
 					ToolCallId: toolCall.Id,
 				})
 				continue
