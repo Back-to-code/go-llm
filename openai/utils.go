@@ -11,6 +11,9 @@ import (
 	apikey "github.com/Back-to-code/go-llm/apikeys"
 )
 
+// BaseURL is the OpenAI API base URL. Exported for test overrides.
+var BaseURL = "https://api.openai.com"
+
 func newRequest(path string, body any, timeout time.Duration, ctx context.Context) (*http.Response, error) {
 	// Convert request body to JSON
 	jsonData, err := json.Marshal(body)
@@ -21,9 +24,9 @@ func newRequest(path string, body any, timeout time.Duration, ctx context.Contex
 	// Create the HTTP request
 	var req *http.Request
 	if ctx == nil {
-		req, err = http.NewRequest("POST", "https://api.openai.com"+path, bytes.NewBuffer(jsonData))
+		req, err = http.NewRequest("POST", BaseURL+path, bytes.NewBuffer(jsonData))
 	} else {
-		req, err = http.NewRequestWithContext(ctx, "POST", "https://api.openai.com"+path, bytes.NewBuffer(jsonData))
+		req, err = http.NewRequestWithContext(ctx, "POST", BaseURL+path, bytes.NewBuffer(jsonData))
 	}
 	if err != nil {
 		return nil, fmt.Errorf("error creating request: %v", err)
