@@ -120,8 +120,12 @@ func (m *Model) Prompt(messages []Message, options Options) (Response, error) {
 			return Response{}, options.Ctx.Err()
 		}
 
+		start := time.Now()
 		resp, err = m.Provider.Prompt(m.Name, messages, options)
 		if err != nil {
+			if time.Since(start) < time.Second {
+				time.Sleep(time.Millisecond * 100 * (time.Duration(i) + 1))
+			}
 			continue
 		}
 
