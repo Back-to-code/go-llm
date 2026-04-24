@@ -3,8 +3,6 @@ package llm
 import (
 	"errors"
 	"fmt"
-
-	"github.com/Back-to-code/go-llm/log"
 )
 
 type FallbackModel struct {
@@ -20,8 +18,15 @@ func (f *FallbackModel) Prompt(messages []Message, options Options) (Response, e
 		return Response{}, errors.New("FallbackModel has no models")
 	}
 
+	for _, msg := range messages {
+		if msg.Role == "tool" {
+			// Different providers handle tools differently so we can't allow tool messages when using fallback models
+			return Response{}, errors.New("FallbackModel does not support tool messages")
+		}
+	}
+
 	var lastErr error
-	for idx, model := range f.Models {
+	for _, model := range f.Models {
 		if options.Ctx != nil && options.Ctx.Err() != nil {
 			return Response{}, options.Ctx.Err()
 		}
@@ -30,9 +35,6 @@ func (f *FallbackModel) Prompt(messages []Message, options Options) (Response, e
 			return resp, nil
 		}
 		lastErr = err
-		if idx < len(f.Models)-1 {
-			log.Info(fmt.Sprintf("FallbackModel: model #%d failed (%v), falling back", idx, err))
-		}
 	}
 	return Response{}, fmt.Errorf("all %d fallback models failed, last error: %w", len(f.Models), lastErr)
 }
@@ -44,6 +46,13 @@ func (f *FallbackModel) PromptSingle(message string, options Options) (Response,
 func (f *FallbackModel) Stream(messages []Message, options Options) (chan string, error) {
 	if len(f.Models) == 0 {
 		return nil, errors.New("FallbackModel has no models")
+	}
+
+	for _, msg := range messages {
+		if msg.Role == "tool" {
+			// Different providers handle tools differently so we can't allow tool messages when using fallback models
+			return nil, errors.New("FallbackModel does not support tool messages")
+		}
 	}
 
 	var lastErr error
