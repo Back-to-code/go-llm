@@ -85,8 +85,8 @@ func TestPromptToolResolverThreadsArgsAndErrors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Prompt returned error: %v", err)
 	}
-	if out != "done" {
-		t.Fatalf("Prompt returned %q, want %q", out, "done")
+	if out.Value != "done" {
+		t.Fatalf("Prompt returned %q, want %q", out.Value, "done")
 	}
 	if gotToolName != "second_tool" {
 		t.Fatalf("wrong tool resolved: got %q", gotToolName)

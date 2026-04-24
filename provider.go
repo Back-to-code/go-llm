@@ -80,6 +80,12 @@ type Provider interface {
 	SupportsTools() bool
 }
 
+type Prompter interface {
+	Prompt(messages []Message, options Options) (Response, error)
+	PromptSingle(message string, options Options) (Response, error)
+	Stream(messages []Message, options Options) (chan string, error)
+}
+
 type Model struct {
 	Name     string
 	Provider Provider
