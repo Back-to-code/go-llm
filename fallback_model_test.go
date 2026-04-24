@@ -36,6 +36,10 @@ func (s *stubPrompter) Stream(messages []llm.Message, options llm.Options) (chan
 	return s.streamFn(messages, options)
 }
 
+func (s *stubPrompter) ModelName() string {
+	return "stub"
+}
+
 func okPrompter(value string) *stubPrompter {
 	return &stubPrompter{
 		promptFn: func(messages []llm.Message, _ llm.Options) (llm.Response, error) {

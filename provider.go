@@ -84,11 +84,19 @@ type Prompter interface {
 	Prompt(messages []Message, options Options) (Response, error)
 	PromptSingle(message string, options Options) (Response, error)
 	Stream(messages []Message, options Options) (chan string, error)
+	ModelName() string
 }
 
 type Model struct {
 	Name     string
 	Provider Provider
+}
+
+func (m *Model) ModelName() string {
+	if m.Name == "" {
+		return "<none>"
+	}
+	return m.Name
 }
 
 func (m *Model) Prompt(messages []Message, options Options) (Response, error) {

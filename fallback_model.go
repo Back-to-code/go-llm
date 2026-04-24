@@ -3,6 +3,7 @@ package llm
 import (
 	"errors"
 	"fmt"
+	"strings"
 )
 
 type FallbackModel struct {
@@ -11,6 +12,20 @@ type FallbackModel struct {
 
 func NewFallbackModel(models ...Prompter) *FallbackModel {
 	return &FallbackModel{Models: models}
+}
+
+func (f *FallbackModel) ModelName() string {
+	if len(f.Models) == 0 {
+		return "<none>"
+	}
+	if len(f.Models) == 1 {
+		return f.Models[0].ModelName()
+	}
+	fallbacks := make([]string, len(f.Models)-1)
+	for i, m := range f.Models[1:] {
+		fallbacks[i] = m.ModelName()
+	}
+	return f.Models[0].ModelName() + " fallback: " + strings.Join(fallbacks, ", ")
 }
 
 func (f *FallbackModel) Prompt(messages []Message, options Options) (Response, error) {
