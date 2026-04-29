@@ -4,13 +4,13 @@ A abstraction layer for communicating with LLM providers.
 
 The following providers and features are supported:
 
-|                                 | [OpenAi](https://openai.com/) | [Google Ai Studio](https://aistudio.google.com/) | [TogetherAi](https://www.together.ai/) |
-| ------------------------------- | ----------------------------- | ------------------------------------------------ | -------------------------------------- |
-| Completions                     | ✔️                            | ✔️                                               | ✔️                                     |
-| Structured output (json)        | ✔️                            | ✔️                                               | ✔️                                     |
-| Structured output (json schema) |                               |                                                  |                                        |
-| Streaming                       | ✔️                            |                                                  |                                        |
-| Tools                           | ✔️                            | ✔️                                               |                                        |
+|                                 | [OpenAi](https://openai.com/) | [Google Ai Studio](https://aistudio.google.com/) | [TogetherAi](https://www.together.ai/) | [Inception](https://www.inceptionlabs.ai/) |
+| ------------------------------- | ----------------------------- | ------------------------------------------------ | -------------------------------------- | ------------------------------------------ |
+| Completions                     | ✔️                            | ✔️                                               | ✔️                                     | ✔️                                         |
+| Structured output (json)        | ✔️                            | ✔️                                               | ✔️                                     | ✔️                                         |
+| Structured output (json schema) |                               |                                                  |                                        |                                            |
+| Streaming                       | ✔️                            |                                                  |                                        | ✔️                                         |
+| Tools                           | ✔️                            | ✔️                                               |                                        | ✔️                                         |
 
 DO NOT MAKE THIS REPO PRIVATE! This library can now be easially imported from other go project without having to configured annoying shell variables.
 
@@ -29,6 +29,7 @@ Before using the library, you need to set up API keys for the providers you want
 | OpenAI           | `OPENAI_TOKEN`         |
 | Google AI Studio | `GOOGLE_AI_STUDIO_KEY` |
 | Together AI      | `TOGETHER_AI_TOKEN`    |
+| Inception        | `INCEPTION_API_KEY`    |
 
 ## Quick Start
 

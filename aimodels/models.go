@@ -3,6 +3,7 @@ package aimodels
 import (
 	"github.com/Back-to-code/go-llm"
 	"github.com/Back-to-code/go-llm/googleaistudio"
+	"github.com/Back-to-code/go-llm/inception"
 	"github.com/Back-to-code/go-llm/openai"
 )
 
@@ -41,5 +42,6 @@ var (
 	// = DIRT CHEAP
 	ChatGpt5Nano = register("gpt-5-nano", &openai.Provider{})
 	Gemini2Flash = register("gemini-2.0-flash", &googleaistudio.Provider{})
+	Mercury2     = register("mercury-2", &inception.Provider{})
 	Nano         = ChatGpt5Nano // <- Deafult
 )

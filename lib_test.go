@@ -9,6 +9,7 @@ import (
 
 	"github.com/Back-to-code/go-llm"
 	"github.com/Back-to-code/go-llm/googleaistudio"
+	"github.com/Back-to-code/go-llm/inception"
 	"github.com/Back-to-code/go-llm/openai"
 	"github.com/Back-to-code/go-llm/togetherai"
 	"github.com/joho/godotenv"
@@ -429,6 +430,114 @@ func TestTogetherAI(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "does not support streaming") {
 			t.Errorf("expected 'does not support streaming' error, got: %v", err)
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
+// Inception
+// ---------------------------------------------------------------------------
+
+func TestInception(t *testing.T) {
+	skipIfEnvMissing(t, "INCEPTION_API_KEY")
+
+	provider := &inception.Provider{}
+	model := &llm.Model{Name: "mercury-2", Provider: provider}
+
+	t.Run("PromptSingle", func(t *testing.T) {
+		resp, err := model.PromptSingle("Reply with only the word 'hello'.", llm.Options{NoRetry: true})
+		assertResponse(t, resp, err)
+		assertUsageNonZero(t, resp.Usage)
+
+		if !strings.Contains(strings.ToLower(resp.Value), "hello") {
+			t.Errorf("expected response to contain 'hello', got: %q", resp.Value)
+		}
+
+		if len(resp.Conversation) < 2 {
+			t.Fatalf("expected at least 2 messages in conversation, got %d", len(resp.Conversation))
+		}
+		if resp.Conversation[0].Role != "user" {
+			t.Errorf("expected first message role 'user', got %q", resp.Conversation[0].Role)
+		}
+	})
+
+	t.Run("Prompt", func(t *testing.T) {
+		messages := []llm.Message{
+			llm.System("You are a helpful assistant. Always reply in one short sentence."),
+			llm.User("What is 2+2?"),
+		}
+		resp, err := model.Prompt(messages, llm.Options{NoRetry: true})
+		assertResponse(t, resp, err)
+		assertUsageNonZero(t, resp.Usage)
+
+		if len(resp.Conversation) < 3 {
+			t.Fatalf("expected at least 3 messages in conversation, got %d", len(resp.Conversation))
+		}
+	})
+
+	t.Run("PromptWithTools", func(t *testing.T) {
+		resp, err := model.Prompt(
+			[]llm.Message{
+				llm.System("You have access to a weather tool. Use it to answer the question. After getting the result, reply with a short sentence."),
+				llm.User("What is the weather in Amsterdam?"),
+			},
+			llm.Options{
+				NoRetry: true,
+				Tools:   []llm.Tool{weatherTool()},
+			},
+		)
+		assertResponse(t, resp, err)
+		assertUsageNonZero(t, resp.Usage)
+
+		if len(resp.Conversation) < 5 {
+			t.Fatalf("expected at least 5 messages in conversation with tool calls, got %d", len(resp.Conversation))
+		}
+
+		hasToolCall := false
+		hasToolResponse := false
+		for _, msg := range resp.Conversation {
+			if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
+				hasToolCall = true
+			}
+			if msg.Role == "tool" {
+				hasToolResponse = true
+			}
+		}
+		if !hasToolCall {
+			t.Error("expected at least one assistant message with ToolCalls in conversation")
+		}
+		if !hasToolResponse {
+			t.Error("expected at least one tool response message in conversation")
+		}
+	})
+
+	t.Run("PromptJSON", func(t *testing.T) {
+		resp, err := model.PromptSingle(
+			`Return a JSON object with a single key "color" and value "blue". No other text.`,
+			llm.Options{
+				NoRetry:        true,
+				ResponseFormat: llm.ResponseFormatJsonObject,
+			},
+		)
+		assertResponse(t, resp, err)
+		assertUsageNonZero(t, resp.Usage)
+
+		var parsed map[string]string
+		if err := json.Unmarshal([]byte(resp.Value), &parsed); err != nil {
+			t.Fatalf("expected valid JSON response, got parse error: %v\nraw: %q", err, resp.Value)
+		}
+		if parsed["color"] != "blue" {
+			t.Errorf("expected color=blue, got %q", parsed["color"])
+		}
+	})
+
+	t.Run("YesNo", func(t *testing.T) {
+		result, err := llm.YesNo(model.PromptSingle("Is the sky blue? Reply with only yes or no.", llm.Options{NoRetry: true}))
+		if err != nil {
+			t.Fatalf("expected no error, got: %v", err)
+		}
+		if !result {
+			t.Error("expected YesNo to return true for 'is the sky blue'")
 		}
 	})
 }
