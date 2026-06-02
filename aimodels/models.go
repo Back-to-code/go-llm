@@ -41,7 +41,7 @@ var (
 	// Or giving simple things a score.
 	// = DIRT CHEAP
 	ChatGpt5Nano = register("gpt-5-nano", &openai.Provider{})
-	Gemini2Flash = register("gemini-2.0-flash", &googleaistudio.Provider{})
+	Gemini2Flash = register("gemini-2.5-flash-lite", &googleaistudio.Provider{})
 	Mercury2     = register("mercury-2", &inception.Provider{})
 	Nano         = ChatGpt5Nano // <- Deafult
 )

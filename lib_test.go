@@ -225,7 +225,7 @@ func TestGoogleAIStudio(t *testing.T) {
 	skipIfEnvMissing(t, "GOOGLE_AI_STUDIO_KEY")
 
 	provider := &googleaistudio.Provider{}
-	model := &llm.Model{Name: "gemini-3.1-flash-lite-preview", Provider: provider}
+	model := &llm.Model{Name: "gemini-2.5-flash-lite", Provider: provider}
 
 	t.Run("PromptSingle", func(t *testing.T) {
 		resp, err := model.PromptSingle("Reply with only the word 'hello'.", llm.Options{NoRetry: true})
