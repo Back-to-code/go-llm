@@ -54,7 +54,7 @@ var thinkingMappings = []struct {
 			llm.MinimalThinking: thinkingBudget(512),
 			llm.LowThinking:     thinkingBudget(1_024),
 			llm.MediumThinking:  thinkingBudget(8_192),
-			llm.HighThinking:    thinkingBudget(32_576),
+			llm.HighThinking:    thinkingBudget(24_576), // Max budget as defined by google ai studio
 		},
 	},
 }
