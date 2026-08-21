@@ -137,6 +137,9 @@ func (m *Model) Prompt(messages []Message, options Options) (Response, error) {
 		start := time.Now()
 		resp, err = m.Provider.Prompt(m.Name, messages, options)
 		if err != nil {
+			if IsPermanent(err) {
+				return Response{}, err
+			}
 			if time.Since(start) < time.Second {
 				time.Sleep(time.Millisecond * 100 * (time.Duration(i) + 1))
 			}

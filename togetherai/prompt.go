@@ -83,11 +83,11 @@ func (*Provider) Prompt(model string, messages []llm.Message, opts llm.Options) 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		respBody, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return llm.Response{}, err
+		respBody, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return llm.Response{}, &llm.APIError{StatusCode: resp.StatusCode}
 		}
-		return llm.Response{}, errors.New(string(respBody))
+		return llm.Response{}, &llm.APIError{StatusCode: resp.StatusCode, Body: string(respBody)}
 	}
 
 	var responsePayload struct {

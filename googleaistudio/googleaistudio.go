@@ -236,11 +236,11 @@ func (*Provider) doRequest(model string, messages []llm.Message, opts llm.Option
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		respBody, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return nil, fmt.Errorf("reading response body: %s", err.Error())
+		respBody, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return nil, &llm.APIError{StatusCode: resp.StatusCode}
 		}
-		return nil, errors.New(string(respBody))
+		return nil, &llm.APIError{StatusCode: resp.StatusCode, Body: string(respBody)}
 	}
 
 	chatResponse := Response{}

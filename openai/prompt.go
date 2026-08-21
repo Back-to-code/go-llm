@@ -97,13 +97,13 @@ func createRequest(stream bool, model string, messages []llm.Message, options ll
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		fullResponse, err := io.ReadAll(resp.Body)
+		fullResponse, readErr := io.ReadAll(resp.Body)
 		resp.Body.Close()
-		if err != nil {
-			return nil, fmt.Errorf("API request failed with status %d", resp.StatusCode)
+		if readErr != nil {
+			return nil, &llm.APIError{StatusCode: resp.StatusCode}
 		}
 
-		return nil, errors.New(string(fullResponse))
+		return nil, &llm.APIError{StatusCode: resp.StatusCode, Body: string(fullResponse)}
 	}
 
 	return resp.Body, nil
