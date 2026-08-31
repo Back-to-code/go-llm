@@ -146,8 +146,9 @@ func TestOpenAI(t *testing.T) {
 				llm.User("What is the weather in Amsterdam?"),
 			},
 			llm.Options{
-				NoRetry: true,
-				Tools:   []llm.Tool{weatherTool()},
+				NoRetry:  true,
+				Tools:    []llm.Tool{weatherTool()},
+				Thinking: llm.MediumThinking,
 			},
 		)
 		assertResponse(t, resp, err)
@@ -183,6 +184,24 @@ func TestOpenAI(t *testing.T) {
 		// the conversation grew between rounds.
 		if resp.Usage.InputTokens < 10 {
 			t.Errorf("expected accumulated InputTokens to be significant, got %d", resp.Usage.InputTokens)
+		}
+	})
+
+	t.Run("Stream", func(t *testing.T) {
+		lines, err := model.Stream(
+			[]llm.Message{llm.User("Reply with only the word 'hello'.")},
+			llm.Options{NoRetry: true},
+		)
+		if err != nil {
+			t.Fatalf("expected no error, got: %v", err)
+		}
+
+		var streamed strings.Builder
+		for line := range lines {
+			streamed.WriteString(line)
+		}
+		if !strings.Contains(strings.ToLower(streamed.String()), "hello") {
+			t.Errorf("expected streamed response to contain 'hello', got: %q", streamed.String())
 		}
 	})
 

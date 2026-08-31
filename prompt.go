@@ -6,11 +6,10 @@ import (
 )
 
 type Message struct {
-	Role             string          `json:"role" validate:"required|llm_role"` // "user", "assistant", "system", "tool"
-	Content          string          `json:"content"`
-	ToolCalls        json.RawMessage `json:"-"`
-	ToolCallId       string          `json:"-"`
-	ThoughtSignature string          `json:"-"`
+	Role       string          `json:"role" validate:"required|llm_role"` // "user", "assistant", "system", "tool"
+	Content    string          `json:"content"`
+	ToolCalls  json.RawMessage `json:"-"`
+	ToolCallId string          `json:"-"`
 }
 
 func System(content string) Message {

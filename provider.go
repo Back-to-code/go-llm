@@ -24,7 +24,10 @@ var (
 type Thinking uint8
 
 const (
-	NoThinking Thinking = iota
+	// AutoThinking sends no thinking parameter, leaving the level to the
+	// provider's own default for the model.
+	AutoThinking Thinking = iota
+	NoThinking
 	MinimalThinking
 	LowThinking
 	MediumThinking
