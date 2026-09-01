@@ -22,7 +22,7 @@ func GetModel(name string) *llm.Model {
 var (
 	// The best models with with the option to think.
 	// Should be used if the mini model is not good enough.
-	// By default the models use the lowest option of thinking (so no thinking in most cases), the level of thinking can be enabled inside llm.Options
+	// By default the thinking level is left to the provider, it can be set inside llm.Options
 	// = PRICY - ULTRA TURBO EXPENSIVE
 	ChatGpt5   = register("gpt-5.6-sol", &openai.Provider{})
 	Gemini3Pro = register("gemini-3.1-pro-preview", &googleaistudio.Provider{})
