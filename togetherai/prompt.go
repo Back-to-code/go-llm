@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 
 	"github.com/Back-to-code/go-llm"
@@ -83,11 +82,7 @@ func (*Provider) Prompt(model string, messages []llm.Message, opts llm.Options) 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		respBody, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return llm.Response{}, err
-		}
-		return llm.Response{}, errors.New(string(respBody))
+		return llm.Response{}, llm.NewErr(resp)
 	}
 
 	var responsePayload struct {
