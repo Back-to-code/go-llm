@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 
 	"github.com/Back-to-code/go-llm"
@@ -236,11 +235,7 @@ func (*Provider) doRequest(model string, messages []llm.Message, opts llm.Option
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		respBody, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return nil, fmt.Errorf("reading response body: %s", err.Error())
-		}
-		return nil, errors.New(string(respBody))
+		return nil, llm.NewErr(resp)
 	}
 
 	chatResponse := Response{}
