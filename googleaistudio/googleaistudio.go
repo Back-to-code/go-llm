@@ -157,12 +157,17 @@ func (*Provider) doRequest(model string, messages []llm.Message, opts llm.Option
 		MaxOutputTokens: opts.MaxTokens,
 		ThinkingConfig:  getThinkingConfig(model, opts.Thinking),
 	}
-	switch opts.ResponseFormat {
-	case llm.ResponseFormatJsonObject:
-		generationConfig.ResponseMimeType = "application/json"
-	case llm.ResponseFormatJsonSchema:
-		generationConfig.ResponseMimeType = "application/json"
-		generationConfig.ResponseJsonSchema = opts.JsonSchema.Schema
+	// Gemini rejects a response mime type next to forced function calling.
+	// Nothing is lost: a forced call answers with function calls, never text.
+	forcedToolCall := len(opts.Tools) > 0 && opts.ToolChoice == llm.ToolChoiceRequired
+	if !forcedToolCall {
+		switch opts.ResponseFormat {
+		case llm.ResponseFormatJsonObject:
+			generationConfig.ResponseMimeType = "application/json"
+		case llm.ResponseFormatJsonSchema:
+			generationConfig.ResponseMimeType = "application/json"
+			generationConfig.ResponseJsonSchema = opts.JsonSchema.Schema
+		}
 	}
 
 	requestPayload := struct {

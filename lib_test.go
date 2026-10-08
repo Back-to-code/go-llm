@@ -400,6 +400,16 @@ func TestGoogleAIStudio(t *testing.T) {
 		assertToolBudget(t, model, llm.Options{NoRetry: true})
 	})
 
+	t.Run("PromptToolBudgetJSONSchema", func(t *testing.T) {
+		assertToolBudget(t, model, llm.Options{
+			NoRetry:        true,
+			ResponseFormat: llm.ResponseFormatJsonSchema,
+			JsonSchema: llm.JsonSchema{
+				Schema: json.RawMessage(`{"type":"object","properties":{"summary":{"type":"string"}},"required":["summary"]}`),
+			},
+		})
+	})
+
 	t.Run("YesNo", func(t *testing.T) {
 		result, err := llm.YesNo(model.PromptSingle("Is the sky blue? Reply with only yes or no.", llm.Options{NoRetry: true}))
 		if err != nil {
