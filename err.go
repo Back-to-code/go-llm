@@ -41,10 +41,29 @@ func (e *Err) Error() string {
 	}
 }
 
+type permanentErr struct{ error }
+
+func (e permanentErr) Unwrap() error { return e.error }
+
+// Permanent marks err as a failure that resending cannot fix, such as a
+// request that could not be built or a missing API key. It returns nil for
+// nil.
+func Permanent(err error) error {
+	if err == nil {
+		return nil
+	}
+	return permanentErr{err}
+}
+
 // IsPermanent reports whether err is a rejection that resending cannot fix.
-// It is false for nil, for errors that do not wrap an *Err, and for an *Err
-// without an HTTP status, so network and read failures stay retryable.
+// It is false for nil, for errors that wrap neither an *Err nor a Permanent
+// error, and for an *Err without an HTTP status, so network and read failures
+// stay retryable.
 func IsPermanent(err error) bool {
+	if errors.As(err, &permanentErr{}) {
+		return true
+	}
+
 	var e *Err
 	if !errors.As(err, &e) {
 		return false

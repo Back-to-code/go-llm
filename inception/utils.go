@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Back-to-code/go-llm"
 	apikey "github.com/Back-to-code/go-llm/apikeys"
 )
 
@@ -17,7 +18,7 @@ var BaseURL = "https://api.inceptionlabs.ai"
 func newRequest(path string, body any, timeout time.Duration, ctx context.Context) (*http.Response, error) {
 	jsonData, err := json.Marshal(body)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling JSON: %v", err)
+		return nil, llm.Permanent(fmt.Errorf("error marshaling JSON: %v", err))
 	}
 
 	var req *http.Request
@@ -27,12 +28,12 @@ func newRequest(path string, body any, timeout time.Duration, ctx context.Contex
 		req, err = http.NewRequestWithContext(ctx, "POST", BaseURL+path, bytes.NewBuffer(jsonData))
 	}
 	if err != nil {
-		return nil, fmt.Errorf("error creating request: %v", err)
+		return nil, llm.Permanent(fmt.Errorf("error creating request: %v", err))
 	}
 
 	apiKey, err := apikey.Inception()
 	if err != nil {
-		return nil, err
+		return nil, llm.Permanent(err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")

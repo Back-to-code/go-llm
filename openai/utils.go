@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Back-to-code/go-llm"
 	apikey "github.com/Back-to-code/go-llm/apikeys"
 )
 
@@ -18,7 +19,7 @@ func newRequest(path string, body any, timeout time.Duration, ctx context.Contex
 	// Convert request body to JSON
 	jsonData, err := json.Marshal(body)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling JSON: %v", err)
+		return nil, llm.Permanent(fmt.Errorf("error marshaling JSON: %v", err))
 	}
 
 	// Create the HTTP request
@@ -29,12 +30,12 @@ func newRequest(path string, body any, timeout time.Duration, ctx context.Contex
 		req, err = http.NewRequestWithContext(ctx, "POST", BaseURL+path, bytes.NewBuffer(jsonData))
 	}
 	if err != nil {
-		return nil, fmt.Errorf("error creating request: %v", err)
+		return nil, llm.Permanent(fmt.Errorf("error creating request: %v", err))
 	}
 
 	apiKey, err := apikey.OpenAi()
 	if err != nil {
-		return nil, err
+		return nil, llm.Permanent(err)
 	}
 
 	// Add headers

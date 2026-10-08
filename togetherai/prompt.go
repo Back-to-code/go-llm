@@ -11,10 +11,14 @@ import (
 	apikey "github.com/Back-to-code/go-llm/apikeys"
 )
 
+// BaseURL is the Together AI API base URL. Exported for test overrides.
+var BaseURL = "https://api.together.xyz"
+
 type Provider struct{}
 
 type ResponseFormat struct {
-	Type string `json:"type"`
+	Type       string          `json:"type"`
+	JsonSchema *llm.JsonSchema `json:"json_schema,omitempty"`
 }
 
 func (*Provider) SupportsStructuredOutput() bool {
@@ -29,13 +33,13 @@ func (*Provider) SupportsTools() bool {
 	return false
 }
 
-func (*Provider) Prompt(model string, messages []llm.Message, opts llm.Options) (llm.Response, error) {
+func (*Provider) Call(model string, messages []llm.Message, opts llm.Options) (llm.Turn, error) {
 	requestPayload := struct {
 		Messages       []llm.Message   `json:"messages"`
 		Model          string          `json:"model"`
 		MaxTokens      int             `json:"max_tokens,omitempty"`
 		Stream         bool            `json:"stream"`
-		ResponseFormat *ResponseFormat `json:"responseFormat,omitempty"`
+		ResponseFormat *ResponseFormat `json:"response_format,omitempty"`
 	}{
 		Messages:  messages,
 		Model:     model,
@@ -43,17 +47,20 @@ func (*Provider) Prompt(model string, messages []llm.Message, opts llm.Options) 
 		Stream:    false,
 	}
 	if opts.ResponseFormat != "" {
-		requestPayload.ResponseFormat = &ResponseFormat{string(opts.ResponseFormat)}
+		requestPayload.ResponseFormat = &ResponseFormat{Type: string(opts.ResponseFormat)}
+	}
+	if opts.ResponseFormat == llm.ResponseFormatJsonSchema {
+		requestPayload.ResponseFormat.JsonSchema = &opts.JsonSchema
 	}
 
 	requestPayloadBytes, err := json.Marshal(requestPayload)
 	if err != nil {
-		return llm.Response{}, fmt.Errorf("marshaling payload: %s", err.Error())
+		return llm.Turn{}, llm.Permanent(fmt.Errorf("marshaling payload: %s", err.Error()))
 	}
 	requestBody := bytes.NewReader(requestPayloadBytes)
 
 	var req *http.Request
-	url := "https://api.together.xyz/v1/chat/completions"
+	url := BaseURL + "/v1/chat/completions"
 	method := "POST"
 	if opts.Ctx == nil {
 		req, err = http.NewRequest(method, url, requestBody)
@@ -61,12 +68,12 @@ func (*Provider) Prompt(model string, messages []llm.Message, opts llm.Options) 
 		req, err = http.NewRequestWithContext(opts.Ctx, method, url, requestBody)
 	}
 	if err != nil {
-		return llm.Response{}, fmt.Errorf("creating request: %s", err.Error())
+		return llm.Turn{}, llm.Permanent(fmt.Errorf("creating request: %s", err.Error()))
 	}
 
 	apiKey, err := apikey.TogetherAi()
 	if err != nil {
-		return llm.Response{}, err
+		return llm.Turn{}, llm.Permanent(err)
 	}
 
 	req.Header.Set("Authorization", "Bearer "+apiKey)
@@ -77,12 +84,12 @@ func (*Provider) Prompt(model string, messages []llm.Message, opts llm.Options) 
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return llm.Response{}, fmt.Errorf("sending request: %s", err.Error())
+		return llm.Turn{}, fmt.Errorf("sending request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return llm.Response{}, llm.NewErr(resp)
+		return llm.Turn{}, llm.NewErr(resp)
 	}
 
 	var responsePayload struct {
@@ -98,20 +105,15 @@ func (*Provider) Prompt(model string, messages []llm.Message, opts llm.Options) 
 	}
 	err = json.NewDecoder(resp.Body).Decode(&responsePayload)
 	if err != nil {
-		return llm.Response{}, fmt.Errorf("decoding response: %s", err.Error())
+		return llm.Turn{}, fmt.Errorf("decoding response: %s", err.Error())
 	}
 
-	content := responsePayload.Choices[0].Message.Content
+	if len(responsePayload.Choices) == 0 {
+		return llm.Turn{}, errors.New("no responses")
+	}
 
-	// Append the final assistant message to the conversation.
-	messages = append(messages, llm.Message{
-		Role:    "assistant",
-		Content: content,
-	})
-
-	return llm.Response{
-		Value:        content,
-		Conversation: messages,
+	return llm.Turn{
+		Message: llm.Assistant(responsePayload.Choices[0].Message.Content),
 		Usage: llm.TokenUsage{
 			InputTokens:  responsePayload.Usage.PromptTokens,
 			OutputTokens: responsePayload.Usage.CompletionTokens,

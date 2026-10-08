@@ -13,14 +13,9 @@ import (
 	"github.com/Back-to-code/go-llm/log"
 )
 
-// Test the tool resolver loop threads the correct arguments to the correct
-// resolver, and propagates resolver errors back to the model. Historical bug:
-// the inner `err :=` in the resolver loop shadowed the outer, and resolver
-// errors were silently swallowed. Also, an earlier iteration of the loop
-// compared `tool.Function.Name` against itself (`tool.Function.Name ==
-// tool.Function.Name`), matching the first registered tool regardless of the
-// call. Both are regression targets here.
-func TestPromptToolResolverThreadsArgsAndErrors(t *testing.T) {
+// A function call has to reach the resolver it names with its arguments, and the
+// follow up request has to replay the reasoning item next to the call.
+func TestToolCallIsResolvedAndReplayed(t *testing.T) {
 	os.Setenv("OPENAI_TOKEN", "test-token")
 	defer os.Unsetenv("OPENAI_TOKEN")
 
@@ -84,8 +79,8 @@ func TestPromptToolResolverThreadsArgsAndErrors(t *testing.T) {
 		},
 	}
 
-	p := &Provider{}
-	out, err := p.Prompt("gpt-test", []llm.Message{llm.User("hi")}, llm.Options{Tools: tools})
+	model := &llm.Model{Name: "gpt-test", Provider: &Provider{}}
+	out, err := model.Prompt([]llm.Message{llm.User("hi")}, llm.Options{Tools: tools, NoRetry: true})
 	if err != nil {
 		t.Fatalf("Prompt returned error: %v", err)
 	}
@@ -150,12 +145,12 @@ func TestReasoningEffortIsSentAlongsideTools(t *testing.T) {
 	defer func() { BaseURL = prev }()
 
 	p := &Provider{}
-	_, err := p.Prompt("gpt-5.4-mini", []llm.Message{llm.User("hi")}, llm.Options{
+	_, err := p.Call("gpt-5.4-mini", []llm.Message{llm.User("hi")}, llm.Options{
 		Tools:    stubTools(),
 		Thinking: llm.MediumThinking,
 	})
 	if err != nil {
-		t.Fatalf("Prompt returned error: %v", err)
+		t.Fatalf("Call returned error: %v", err)
 	}
 
 	reasoning, ok := request["reasoning"].(map[string]any)
@@ -228,11 +223,11 @@ func TestEncryptedReasoningIsRequestedForProModels(t *testing.T) {
 	_, request := serveResponse(t, `{"status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hi"}]}]}`)
 
 	p := &Provider{}
-	if _, err := p.Prompt("gpt-5-pro", []llm.Message{llm.User("hi")}, llm.Options{
+	if _, err := p.Call("gpt-5-pro", []llm.Message{llm.User("hi")}, llm.Options{
 		Thinking: llm.HighThinking,
 		Tools:    stubTools(),
 	}); err != nil {
-		t.Fatalf("Prompt returned error: %v", err)
+		t.Fatalf("Call returned error: %v", err)
 	}
 
 	if _, ok := (*request)["reasoning"]; ok {
@@ -251,11 +246,11 @@ func TestEncryptedReasoningIsNotRequestedForNonReasoningModels(t *testing.T) {
 	_, request := serveResponse(t, `{"status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hi"}]}]}`)
 
 	p := &Provider{}
-	if _, err := p.Prompt("gpt-4o", []llm.Message{llm.User("hi")}, llm.Options{
+	if _, err := p.Call("gpt-4o", []llm.Message{llm.User("hi")}, llm.Options{
 		Thinking: llm.HighThinking,
 		Tools:    stubTools(),
 	}); err != nil {
-		t.Fatalf("Prompt returned error: %v", err)
+		t.Fatalf("Call returned error: %v", err)
 	}
 
 	if _, ok := (*request)["include"]; ok {
@@ -272,8 +267,8 @@ func TestEncryptedReasoningIsNotRequestedWithoutTools(t *testing.T) {
 	_, request := serveResponse(t, `{"status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hi"}]}]}`)
 
 	p := &Provider{}
-	if _, err := p.Prompt("gpt-5.4-mini", []llm.Message{llm.User("hi")}, llm.Options{Thinking: llm.HighThinking}); err != nil {
-		t.Fatalf("Prompt returned error: %v", err)
+	if _, err := p.Call("gpt-5.4-mini", []llm.Message{llm.User("hi")}, llm.Options{Thinking: llm.HighThinking}); err != nil {
+		t.Fatalf("Call returned error: %v", err)
 	}
 
 	if _, ok := (*request)["include"]; ok {
@@ -290,8 +285,8 @@ func TestAutoThinkingSendsNoReasoningConfig(t *testing.T) {
 	_, request := serveResponse(t, `{"status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hi"}]}]}`)
 
 	p := &Provider{}
-	if _, err := p.Prompt("gpt-5.4-mini", []llm.Message{llm.User("hi")}, llm.Options{}); err != nil {
-		t.Fatalf("Prompt returned error: %v", err)
+	if _, err := p.Call("gpt-5.4-mini", []llm.Message{llm.User("hi")}, llm.Options{}); err != nil {
+		t.Fatalf("Call returned error: %v", err)
 	}
 
 	if _, ok := (*request)["reasoning"]; ok {
@@ -308,12 +303,12 @@ func TestIncompleteResponseReturnsPartialText(t *testing.T) {
 	serveResponse(t, `{"status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"half a sen"}]}]}`)
 
 	p := &Provider{}
-	resp, err := p.Prompt("gpt-5.4-mini", []llm.Message{llm.User("hi")}, llm.Options{})
+	turn, err := p.Call("gpt-5.4-mini", []llm.Message{llm.User("hi")}, llm.Options{})
 	if err != nil {
-		t.Fatalf("Prompt returned error: %v", err)
+		t.Fatalf("Call returned error: %v", err)
 	}
-	if resp.Value != "half a sen" {
-		t.Fatalf("Value = %q, want the partial text", resp.Value)
+	if turn.Message.Content != "half a sen" {
+		t.Fatalf("Content = %q, want the partial text", turn.Message.Content)
 	}
 }
 
@@ -343,8 +338,8 @@ func TestIncompleteResponseWithoutTextSkipsToolCalls(t *testing.T) {
 		},
 	}}
 
-	p := &Provider{}
-	_, err := p.Prompt("gpt-5.4-mini", []llm.Message{llm.User("hi")}, llm.Options{Tools: tools})
+	model := &llm.Model{Name: "gpt-5.4-mini", Provider: &Provider{}}
+	_, err := model.Prompt([]llm.Message{llm.User("hi")}, llm.Options{Tools: tools, NoRetry: true})
 	if err == nil || !strings.Contains(err.Error(), "max_output_tokens") {
 		t.Fatalf("err = %v, want it to name max_output_tokens", err)
 	}
@@ -372,20 +367,23 @@ func TestJsonObjectFormatRequiresTheWordJson(t *testing.T) {
 	defer func() { BaseURL = prev }()
 
 	p := &Provider{}
-	_, err := p.Prompt("gpt-5.4-mini", []llm.Message{llm.User("give me the color blue as an object")}, llm.Options{
+	_, err := p.Call("gpt-5.4-mini", []llm.Message{llm.User("give me the color blue as an object")}, llm.Options{
 		ResponseFormat: llm.ResponseFormatJsonObject,
 	})
 	if err == nil || !strings.Contains(err.Error(), "json") {
 		t.Fatalf("err = %v, want it to name the json requirement", err)
 	}
+	if !llm.IsPermanent(err) {
+		t.Errorf("IsPermanent(%v) = false, want the withheld request left unretried", err)
+	}
 	if callCount != 0 {
 		t.Errorf("served %d requests, want the request withheld", callCount)
 	}
 
-	if _, err := p.Prompt("gpt-5.4-mini", []llm.Message{llm.User("reply as JSON")}, llm.Options{
+	if _, err := p.Call("gpt-5.4-mini", []llm.Message{llm.User("reply as JSON")}, llm.Options{
 		ResponseFormat: llm.ResponseFormatJsonObject,
 	}); err != nil {
-		t.Fatalf("Prompt returned error once the input mentions JSON: %v", err)
+		t.Fatalf("Call returned error once the input mentions JSON: %v", err)
 	}
 }
 
@@ -398,7 +396,7 @@ func TestRefusalIsReported(t *testing.T) {
 	serveResponse(t, `{"status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"refusal","refusal":"I can't help with that."}]}]}`)
 
 	p := &Provider{}
-	_, err := p.Prompt("gpt-5.4-mini", []llm.Message{llm.User("hi")}, llm.Options{})
+	_, err := p.Call("gpt-5.4-mini", []llm.Message{llm.User("hi")}, llm.Options{})
 	if err == nil || !strings.Contains(err.Error(), "I can't help with that.") {
 		t.Fatalf("err = %v, want the refusal text", err)
 	}
@@ -447,5 +445,56 @@ func TestStreamSurvivesLargeEventsAndReportsIncomplete(t *testing.T) {
 
 	if !strings.Contains(strings.Join(logged, "\n"), "llm stream incomplete: max_output_tokens") {
 		t.Errorf("logged %v, want the incomplete reason", logged)
+	}
+}
+
+func TestJsonSchemaFormatIsSent(t *testing.T) {
+	os.Setenv("OPENAI_TOKEN", "test-token")
+	defer os.Unsetenv("OPENAI_TOKEN")
+
+	_, request := serveResponse(t, `{"status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"{}"}]}]}`)
+
+	p := &Provider{}
+	_, err := p.Call("gpt-5.4-mini", []llm.Message{llm.User("give me a color")}, llm.Options{
+		ResponseFormat: llm.ResponseFormatJsonSchema,
+		JsonSchema: llm.JsonSchema{
+			Name:   "color",
+			Schema: json.RawMessage(`{"type":"object","properties":{"color":{"type":"string"}}}`),
+			Strict: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Call returned error without the word json in the input: %v", err)
+	}
+
+	format, _ := (*request)["text"].(map[string]any)["format"].(map[string]any)
+	if format["type"] != "json_schema" || format["name"] != "color" || format["strict"] != true {
+		t.Fatalf("text.format = %v", format)
+	}
+	if _, ok := format["schema"].(map[string]any)["properties"]; !ok {
+		t.Fatalf("text.format.schema = %v, want the schema", format["schema"])
+	}
+}
+
+func TestToolChoiceIsSent(t *testing.T) {
+	os.Setenv("OPENAI_TOKEN", "test-token")
+	defer os.Unsetenv("OPENAI_TOKEN")
+
+	for _, choice := range []llm.ToolChoice{llm.ToolChoiceAuto, llm.ToolChoiceRequired, llm.ToolChoiceNone} {
+		t.Run(string(choice), func(t *testing.T) {
+			_, request := serveResponse(t, `{"status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hi"}]}]}`)
+
+			p := &Provider{}
+			if _, err := p.Call("gpt-5.4-mini", []llm.Message{llm.User("hi")}, llm.Options{
+				Tools:      stubTools(),
+				ToolChoice: choice,
+			}); err != nil {
+				t.Fatalf("Call returned error: %v", err)
+			}
+
+			if (*request)["tool_choice"] != string(choice) {
+				t.Errorf("tool_choice = %v, want %s", (*request)["tool_choice"], choice)
+			}
+		})
 	}
 }

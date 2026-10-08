@@ -182,7 +182,7 @@ func TestFallbackModel_AcceptsNestedFallbackModel(t *testing.T) {
 func TestFallbackModel_AcceptsRealModel(t *testing.T) {
 	// Real *llm.Model should satisfy Prompter and work inside FallbackModel.
 	// Use stubProvider to avoid hitting network.
-	sp := &stubProvider{promptFn: okPromptProvider("from-real-model")}
+	sp := &stubProvider{callFn: okCallProvider("from-real-model")}
 	realModel := &llm.Model{Name: "gpt-5", Provider: sp}
 
 	fb := llm.NewFallbackModel(realModel)
@@ -197,13 +197,13 @@ func TestFallbackModel_AcceptsRealModel(t *testing.T) {
 }
 
 type stubProvider struct {
-	promptFn    func(model string, messages []llm.Message, options llm.Options) (llm.Response, error)
-	promptCalls atomic.Int32
+	callFn func(model string, messages []llm.Message, options llm.Options) (llm.Turn, error)
+	calls  atomic.Int32
 }
 
-func (s *stubProvider) Prompt(model string, messages []llm.Message, options llm.Options) (llm.Response, error) {
-	s.promptCalls.Add(1)
-	return s.promptFn(model, messages, options)
+func (s *stubProvider) Call(model string, messages []llm.Message, options llm.Options) (llm.Turn, error) {
+	s.calls.Add(1)
+	return s.callFn(model, messages, options)
 }
 
 func (s *stubProvider) Stream(string, []llm.Message, llm.Options) (chan string, error) {
@@ -214,11 +214,8 @@ func (s *stubProvider) SupportsStructuredOutput() bool { return true }
 func (s *stubProvider) SupportsStreaming() bool        { return true }
 func (s *stubProvider) SupportsTools() bool            { return true }
 
-func okPromptProvider(value string) func(string, []llm.Message, llm.Options) (llm.Response, error) {
-	return func(_ string, messages []llm.Message, _ llm.Options) (llm.Response, error) {
-		return llm.Response{
-			Value:        value,
-			Conversation: append(messages, llm.Message{Role: "assistant", Content: value}),
-		}, nil
+func okCallProvider(value string) func(string, []llm.Message, llm.Options) (llm.Turn, error) {
+	return func(string, []llm.Message, llm.Options) (llm.Turn, error) {
+		return llm.Turn{Message: llm.Assistant(value)}, nil
 	}
 }

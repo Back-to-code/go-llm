@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/Back-to-code/go-llm"
-	"github.com/Back-to-code/go-llm/log"
 )
 
 const maxTokensCeiling = 50000
@@ -45,7 +44,8 @@ type MessageContent struct {
 }
 
 type ResponseFormat struct {
-	Type string `json:"type"`
+	Type       string          `json:"type"`
+	JsonSchema *llm.JsonSchema `json:"json_schema,omitempty"`
 }
 
 // Note: Inception chat enforces a temperature floor of 0.5 (range 0.5–1.0).
@@ -69,31 +69,33 @@ func createRequest(stream bool, model string, messages []llm.Message, options ll
 		bodyMessages[idx] = toMessage(msg)
 	}
 
-	responseFormat := "text"
+	responseFormat := ResponseFormat{Type: "text"}
 	if options.ResponseFormat != "" {
-		responseFormat = string(options.ResponseFormat)
+		responseFormat.Type = string(options.ResponseFormat)
+	}
+	if options.ResponseFormat == llm.ResponseFormatJsonSchema {
+		responseFormat.JsonSchema = &options.JsonSchema
 	}
 
 	maxTokens := min(options.MaxTokens, maxTokensCeiling)
 
 	reqBody := InferenceRequest{
-		Stream:         stream,
-		Model:          model,
-		Messages:       bodyMessages,
-		ResponseFormat: ResponseFormat{responseFormat},
-		Tools:          options.Tools,
-		MaxTokens:      maxTokens,
+		Stream:          stream,
+		Model:           model,
+		Messages:        bodyMessages,
+		ResponseFormat:  responseFormat,
+		Tools:           options.Tools,
+		MaxTokens:       maxTokens,
+		ReasoningEffort: reasoningEffort(options.Thinking),
 	}
 
 	if len(options.Tools) > 0 {
-		reqBody.ToolChoice = "auto"
-	} else {
-		reqBody.ReasoningEffort = reasoningEffort(options.Thinking)
+		reqBody.ToolChoice = string(options.ToolChoice)
 	}
 
 	resp, err := newRequest("/v1/chat/completions", reqBody, options.Timeout, options.Ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to send completions request: %s", err.Error())
+		return nil, fmt.Errorf("failed to send completions request: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -120,10 +122,10 @@ func (*Provider) SupportsTools() bool {
 	return true
 }
 
-func (p *Provider) Prompt(model string, messages []llm.Message, options llm.Options) (llm.Response, error) {
+func (*Provider) Call(model string, messages []llm.Message, options llm.Options) (llm.Turn, error) {
 	resp, err := createRequest(false, model, messages, options)
 	if err != nil {
-		return llm.Response{}, err
+		return llm.Turn{}, err
 	}
 	defer resp.Close()
 
@@ -141,13 +143,13 @@ func (p *Provider) Prompt(model string, messages []llm.Message, options llm.Opti
 	}{}
 	err = json.NewDecoder(resp).Decode(&respContent)
 	if err != nil {
-		return llm.Response{}, err
+		return llm.Turn{}, err
 	}
 	if len(respContent.Choices) == 0 {
-		return llm.Response{}, errors.New("no responses")
+		return llm.Turn{}, errors.New("no responses")
 	}
 
-	currentUsage := llm.TokenUsage{
+	usage := llm.TokenUsage{
 		InputTokens:       respContent.Usage.PromptTokens,
 		OutputTokens:      respContent.Usage.CompletionTokens,
 		CachedInputTokens: respContent.Usage.PromptTokensDetails.CachedTokens,
@@ -167,106 +169,45 @@ func (p *Provider) Prompt(model string, messages []llm.Message, options llm.Opti
 	}
 	err = json.Unmarshal(rawLastMessage, &lastMessage)
 	if err != nil {
-		return llm.Response{}, fmt.Errorf("failed to unmarshal response: %s", err.Error())
+		return llm.Turn{}, fmt.Errorf("failed to unmarshal response: %s", err.Error())
 	}
 
 	if len(lastMessage.ToolCalls) > 0 {
-		tools := lastMessage.ToolCalls
-		var jsonTools []byte
-		jsonTools, err = json.Marshal(tools)
+		jsonTools, err := json.Marshal(lastMessage.ToolCalls)
 		if err != nil {
-			return llm.Response{}, fmt.Errorf("failed to marshal tools: %s", err.Error())
+			return llm.Turn{}, fmt.Errorf("failed to marshal tools: %s", err.Error())
 		}
-		messages = append(messages, llm.Message{
-			Role:      "assistant",
-			ToolCalls: jsonTools,
-		})
 
-		for _, toolCall := range tools {
+		turn := llm.Turn{
+			Message: llm.Message{Role: "assistant", ToolCalls: jsonTools},
+			Usage:   usage,
+		}
+		for _, toolCall := range lastMessage.ToolCalls {
 			if toolCall.Type != "function" {
-				return llm.Response{}, errors.New("unsupported tool type " + toolCall.Type)
+				return llm.Turn{}, errors.New("unsupported tool type " + toolCall.Type)
 			}
 			if toolCall.Function == nil {
-				return llm.Response{}, errors.New("missing function")
+				return llm.Turn{}, errors.New("missing function")
 			}
 
-			foundTool := false
-			var response any
-			var resolveErr error
-			log.Info("llm tool call " + toolCall.Function.Name)
-			for _, tool := range options.Tools {
-				if toolCall.Function.Name != tool.Function.Name {
-					continue
-				}
-				foundTool = true
-
-				var arguments json.RawMessage
-				if uerr := json.Unmarshal([]byte(toolCall.Function.Arguments), &arguments); uerr != nil {
-					arguments = json.RawMessage("null")
-				}
-
-				response, resolveErr = tool.Resolver(arguments)
-				break
+			var arguments json.RawMessage
+			if uerr := json.Unmarshal([]byte(toolCall.Function.Arguments), &arguments); uerr != nil {
+				arguments = json.RawMessage("null")
 			}
-			if !foundTool {
-				messages = append(messages, llm.Message{
-					Role:       "tool",
-					Content:    "error: not found",
-					ToolCallId: toolCall.Id,
-				})
-				continue
-			}
-
-			if resolveErr != nil {
-				messages = append(messages, llm.Message{
-					Role:       "tool",
-					Content:    "error: " + resolveErr.Error(),
-					ToolCallId: toolCall.Id,
-				})
-				continue
-			}
-
-			responseJson, err := json.Marshal(response)
-			if err != nil {
-				messages = append(messages, llm.Message{
-					Role:       "tool",
-					Content:    "error: " + err.Error(),
-					ToolCallId: toolCall.Id,
-				})
-				continue
-			}
-
-			messages = append(messages, llm.Message{
-				Role:       "tool",
-				Content:    string(responseJson),
-				ToolCallId: toolCall.Id,
+			turn.ToolCalls = append(turn.ToolCalls, llm.ToolCall{
+				Id:        toolCall.Id,
+				Name:      toolCall.Function.Name,
+				Arguments: arguments,
 			})
 		}
-
-		innerResp, err := p.Prompt(model, messages, options)
-		if err != nil {
-			return llm.Response{}, err
-		}
-		innerResp.Usage.InputTokens += currentUsage.InputTokens
-		innerResp.Usage.OutputTokens += currentUsage.OutputTokens
-		innerResp.Usage.CachedInputTokens += currentUsage.CachedInputTokens
-		return innerResp, nil
+		return turn, nil
 	}
 
 	if lastMessage.Content == nil {
-		return llm.Response{}, errors.New("missing content")
+		return llm.Turn{}, errors.New("missing content")
 	}
 
-	messages = append(messages, llm.Message{
-		Role:    "assistant",
-		Content: *lastMessage.Content,
-	})
-
-	return llm.Response{
-		Value:        *lastMessage.Content,
-		Conversation: messages,
-		Usage:        currentUsage,
-	}, nil
+	return llm.Turn{Message: llm.Assistant(*lastMessage.Content), Usage: usage}, nil
 }
 
 func (*Provider) Stream(model string, messages []llm.Message, options llm.Options) (chan string, error) {

@@ -96,6 +96,54 @@ func assertUsageNonZero(t *testing.T, usage llm.TokenUsage) {
 	}
 }
 
+// assertJsonSchema asks for a color through a strict JSON schema.
+func assertJsonSchema(t *testing.T, model llm.Prompter, options llm.Options) {
+	t.Helper()
+
+	options.ResponseFormat = llm.ResponseFormatJsonSchema
+	options.JsonSchema = llm.JsonSchema{
+		Name:   "color",
+		Schema: json.RawMessage(`{"type":"object","properties":{"color":{"type":"string"}},"required":["color"],"additionalProperties":false}`),
+		Strict: true,
+	}
+	resp, err := model.PromptSingle("What color is the sky on a clear day? Answer with a single lowercase word.", options)
+	assertResponse(t, resp, err)
+
+	var parsed map[string]string
+	if err := json.Unmarshal([]byte(resp.Value), &parsed); err != nil {
+		t.Fatalf("expected valid JSON response, got parse error: %v\nraw: %q", err, resp.Value)
+	}
+	if parsed["color"] != "blue" {
+		t.Errorf("expected color=blue, got %q", parsed["color"])
+	}
+}
+
+// assertToolBudget asks for more lookups than MaxToolCalls allows, so the
+// provider has to accept tool choice required, then none after the budget
+// message.
+func assertToolBudget(t *testing.T, model llm.Prompter, options llm.Options) {
+	t.Helper()
+
+	var runs int
+	tool := weatherTool()
+	tool.Resolver = func(json.RawMessage) (any, error) {
+		runs++
+		return "Partly cloudy\n18°C", nil
+	}
+
+	options.Tools = []llm.Tool{tool}
+	options.ToolChoice = llm.ToolChoiceRequired
+	options.MaxToolCalls = 1
+	resp, err := model.Prompt([]llm.Message{
+		llm.User("Look up the weather in Amsterdam, Paris and Berlin, one city per tool call, then summarize it in one sentence."),
+	}, options)
+	assertResponse(t, resp, err)
+
+	if runs != 1 {
+		t.Errorf("resolver ran %d times, want 1", runs)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // OpenAI
 // ---------------------------------------------------------------------------
@@ -225,6 +273,14 @@ func TestOpenAI(t *testing.T) {
 		}
 	})
 
+	t.Run("PromptJSONSchema", func(t *testing.T) {
+		assertJsonSchema(t, model, llm.Options{NoRetry: true})
+	})
+
+	t.Run("PromptToolBudget", func(t *testing.T) {
+		assertToolBudget(t, model, llm.Options{NoRetry: true, Thinking: llm.LowThinking})
+	})
+
 	t.Run("YesNo", func(t *testing.T) {
 		result, err := llm.YesNo(model.PromptSingle("Is the sky blue? Reply with only yes or no.", llm.Options{NoRetry: true}))
 		if err != nil {
@@ -244,7 +300,7 @@ func TestGoogleAIStudio(t *testing.T) {
 	skipIfEnvMissing(t, "GOOGLE_AI_STUDIO_KEY")
 
 	provider := &googleaistudio.Provider{}
-	model := &llm.Model{Name: "gemini-2.5-flash-lite", Provider: provider}
+	model := &llm.Model{Name: "gemini-3.5-flash-lite", Provider: provider}
 
 	t.Run("PromptSingle", func(t *testing.T) {
 		resp, err := model.PromptSingle("Reply with only the word 'hello'.", llm.Options{NoRetry: true})
@@ -336,6 +392,14 @@ func TestGoogleAIStudio(t *testing.T) {
 		}
 	})
 
+	t.Run("PromptJSONSchema", func(t *testing.T) {
+		assertJsonSchema(t, model, llm.Options{NoRetry: true})
+	})
+
+	t.Run("PromptToolBudget", func(t *testing.T) {
+		assertToolBudget(t, model, llm.Options{NoRetry: true})
+	})
+
 	t.Run("YesNo", func(t *testing.T) {
 		result, err := llm.YesNo(model.PromptSingle("Is the sky blue? Reply with only yes or no.", llm.Options{NoRetry: true}))
 		if err != nil {
@@ -409,6 +473,10 @@ func TestTogetherAI(t *testing.T) {
 		if parsed["color"] != "blue" {
 			t.Errorf("expected color=blue, got %q", parsed["color"])
 		}
+	})
+
+	t.Run("PromptJSONSchema", func(t *testing.T) {
+		assertJsonSchema(t, model, opts)
 	})
 
 	t.Run("YesNo", func(t *testing.T) {
@@ -548,6 +616,14 @@ func TestInception(t *testing.T) {
 		if parsed["color"] != "blue" {
 			t.Errorf("expected color=blue, got %q", parsed["color"])
 		}
+	})
+
+	t.Run("PromptJSONSchema", func(t *testing.T) {
+		assertJsonSchema(t, model, llm.Options{NoRetry: true})
+	})
+
+	t.Run("PromptToolBudget", func(t *testing.T) {
+		assertToolBudget(t, model, llm.Options{NoRetry: true, Thinking: llm.LowThinking})
 	})
 
 	t.Run("YesNo", func(t *testing.T) {

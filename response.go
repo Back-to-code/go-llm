@@ -7,6 +7,12 @@ type TokenUsage struct {
 	CachedInputTokens int
 }
 
+func (u *TokenUsage) add(other TokenUsage) {
+	u.InputTokens += other.InputTokens
+	u.OutputTokens += other.OutputTokens
+	u.CachedInputTokens += other.CachedInputTokens
+}
+
 // Response is the return type for Prompt and PromptSingle calls.
 type Response struct {
 	// Value is the final text content returned by the model.

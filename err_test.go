@@ -47,6 +47,8 @@ func TestIsPermanent(t *testing.T) {
 		{name: "service unavailable", err: &llm.Err{StatusCode: 503, Body: "overloaded"}, want: false},
 		{name: "wrapped Err", err: fmt.Errorf("prompting model: %w", &llm.Err{StatusCode: 404, Body: "model not found"}), want: true},
 		{name: "wrapped Err that is transient", err: fmt.Errorf("prompting model: %w", &llm.Err{StatusCode: 500, Body: "boom"}), want: false},
+		{name: "Permanent", err: llm.Permanent(errors.New("OPENAI_TOKEN environment variable not set")), want: true},
+		{name: "wrapped Permanent", err: fmt.Errorf("sending request: %w", llm.Permanent(errors.New("bad input"))), want: true},
 	}
 
 	for _, tc := range cases {
