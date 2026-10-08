@@ -97,6 +97,25 @@ func TestToolChoiceIsSentAsFunctionCallingMode(t *testing.T) {
 	}
 }
 
+func TestForcedToolCallSendsNoResponseFormat(t *testing.T) {
+	request := serveResponse(t, textResponse)
+
+	p := &Provider{}
+	if _, err := p.Call("gemini-3.5-flash-lite", []llm.Message{llm.User("hi")}, llm.Options{
+		Tools:          stubTools(),
+		ToolChoice:     llm.ToolChoiceRequired,
+		ResponseFormat: llm.ResponseFormatJsonSchema,
+		JsonSchema:     llm.JsonSchema{Name: "color", Schema: json.RawMessage(`{"type":"object"}`)},
+	}); err != nil {
+		t.Fatalf("Call returned error: %v", err)
+	}
+
+	config, _ := (*request)["generationConfig"].(map[string]any)
+	if config["response_mime_type"] != nil || config["responseJsonSchema"] != nil {
+		t.Errorf("generationConfig = %v, want no response format next to mode ANY", config)
+	}
+}
+
 func TestToolRoundTrip(t *testing.T) {
 	serveResponse(t, `{"candidates":[{"content":{"role":"model","parts":[{"functionCall":{"name":"get_weather","args":{"city":"Amsterdam"}},"thoughtSignature":"sig"}]}}]}`)
 
