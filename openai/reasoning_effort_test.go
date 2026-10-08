@@ -89,6 +89,12 @@ func TestEffortMapping(t *testing.T) {
 		{"o4-mini", llm.NoThinking, "low"},
 		{"o4-mini", llm.HighThinking, "high"},
 		{"gpt-5.3-codex", llm.MinimalThinking, "low"},
+		{"gpt-6.1-sol", llm.NoThinking, "low"},
+		{"gpt-6.1-sol", llm.MinimalThinking, "low"},
+		{"gpt-6.1-sol", llm.HighThinking, "high"},
+		{"gpt-6-astra", llm.NoThinking, "low"},
+		{"gpt-6-sol", llm.NoThinking, "none"},
+		{"gpt-6-luna", llm.MinimalThinking, "none"},
 	}
 
 	for _, c := range cases {

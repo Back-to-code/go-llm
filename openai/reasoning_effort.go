@@ -13,6 +13,13 @@ var nonReasoningModels = []string{
 	"gpt-4",
 }
 
+// lowEffortFloorModels answer "'none' is not supported … Supported values are:
+// 'low', 'medium', 'high', 'xhigh', and 'max'".
+var lowEffortFloorModels = []string{
+	"gpt-6-astra",
+	"gpt-6.1-sol",
+}
+
 // narrowsEffortRange reports whether the model accepts less than the effort
 // range of its family: every pro model rejects "none", chat-latest takes only
 // "medium". Both are left to the server default rather than mapped.
@@ -58,7 +65,7 @@ func reasoningEffort(model string, thinking llm.Thinking) string {
 		}
 	}
 
-	if strings.Contains(model, "codex") {
+	if strings.Contains(model, "codex") || hasModelPrefix(model, lowEffortFloorModels) {
 		switch thinking {
 		case llm.NoThinking, llm.MinimalThinking, llm.LowThinking:
 			return "low"

@@ -40,6 +40,10 @@ func (f *FallbackModel) Prompt(messages []Message, options Options) (Response, e
 		}
 	}
 
+	if options.toolCallsUsed == nil {
+		options.toolCallsUsed = new(int)
+	}
+
 	var lastErr error
 	for _, model := range f.Models {
 		if options.Ctx != nil && options.Ctx.Err() != nil {

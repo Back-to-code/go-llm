@@ -11,6 +11,9 @@ import (
 	apikey "github.com/Back-to-code/go-llm/apikeys"
 )
 
+// BaseURL is the Google AI Studio API base URL. Exported for test overrides.
+var BaseURL = "https://generativelanguage.googleapis.com"
+
 type Provider struct{}
 
 type ResponseFormat struct {
@@ -22,6 +25,7 @@ type Response struct {
 		Content struct {
 			Parts []Part `json:"parts"`
 		} `json:"content"`
+		FinishReason string `json:"finishReason"`
 	} `json:"candidates"`
 	UsageMetadata struct {
 		PromptTokenCount        int `json:"promptTokenCount"`
@@ -47,9 +51,10 @@ type SystemInstruction struct {
 }
 
 type GenerationConfig struct {
-	MaxOutputTokens  int             `json:"maxOutputTokens,omitempty"`
-	ResponseMimeType string          `json:"response_mime_type,omitempty"`
-	ThinkingConfig   *ThinkingConfig `json:"thinkingConfig,omitempty"`
+	MaxOutputTokens    int             `json:"maxOutputTokens,omitempty"`
+	ResponseMimeType   string          `json:"response_mime_type,omitempty"`
+	ResponseJsonSchema json.RawMessage `json:"responseJsonSchema,omitempty"`
+	ThinkingConfig     *ThinkingConfig `json:"thinkingConfig,omitempty"`
 }
 
 func (*Provider) SupportsStructuredOutput() bool {
@@ -64,29 +69,30 @@ func (*Provider) SupportsTools() bool {
 	return true
 }
 
-func (p *Provider) Prompt(model string, messages []llm.Message, opts llm.Options) (llm.Response, error) {
+func (p *Provider) Call(model string, messages []llm.Message, opts llm.Options) (llm.Turn, error) {
 	chatResponse, err := p.doRequest(model, messages, opts)
 	if err != nil {
-		return llm.Response{}, err
+		return llm.Turn{}, err
 	}
 
 	candidates := chatResponse.Candidates
 	if len(candidates) == 0 {
-		return llm.Response{}, errors.New("chat did not return any results")
+		return llm.Turn{}, errors.New("chat did not return any results")
 	}
 
-	currentUsage := llm.TokenUsage{
+	usage := llm.TokenUsage{
 		InputTokens:       chatResponse.UsageMetadata.PromptTokenCount,
 		OutputTokens:      chatResponse.UsageMetadata.CandidatesTokenCount,
 		CachedInputTokens: chatResponse.UsageMetadata.CachedContentTokenCount,
 	}
 
-	parts := candidates[len(candidates)-1].Content.Parts
+	candidate := candidates[len(candidates)-1]
+	parts := candidate.Content.Parts
 	if len(parts) == 0 {
-		return llm.Response{}, errors.New("chat did not return any result parts")
+		// UNEXPECTED_TOOL_CALL means the model tried a tool while the mode was NONE.
+		return llm.Turn{}, fmt.Errorf("chat did not return any result parts, finish reason %s", candidate.FinishReason)
 	}
 
-	// Check if the model is requesting function calls
 	var functionParts []Part
 	for _, part := range parts {
 		if part.FunctionCall != nil {
@@ -99,46 +105,23 @@ func (p *Provider) Prompt(model string, messages []llm.Message, opts llm.Options
 		// reconstructed into functionCall parts on the next round-trip.
 		toolCallsJson, err := json.Marshal(functionParts)
 		if err != nil {
-			return llm.Response{}, fmt.Errorf("marshaling function calls: %w", err)
-		}
-		messages = append(messages, llm.Message{
-			Role:      "assistant",
-			ToolCalls: toolCallsJson,
-		})
-
-		// Resolve each function call
-		responses, err := resolveToolCalls(functionParts, opts.Tools)
-		if err != nil {
-			return llm.Response{}, fmt.Errorf("resolving tool calls: %w", err)
+			return llm.Turn{}, fmt.Errorf("marshaling function calls: %w", err)
 		}
 
-		// Append each result as a "tool" message. We use ToolCallId to carry
-		// the function name (Gemini has no call IDs — it matches by name).
-		for _, resp := range responses {
-			responseJson, err := json.Marshal(resp.Response)
-			if err != nil {
-				responseJson = []byte(`{"error":"failed to marshal response"}`)
-			}
-			messages = append(messages, llm.Message{
-				Role:       "tool",
-				Content:    string(responseJson),
-				ToolCallId: resp.Name,
+		turn := llm.Turn{
+			Message: llm.Message{Role: "assistant", ToolCalls: toolCallsJson},
+			Usage:   usage,
+		}
+		for position, part := range functionParts {
+			turn.ToolCalls = append(turn.ToolCalls, llm.ToolCall{
+				Id:        callId(part.FunctionCall, position),
+				Name:      part.FunctionCall.Name,
+				Arguments: part.FunctionCall.Args,
 			})
 		}
-
-		// Recurse to continue the conversation after tool calls.
-		// Accumulate token usage from this round with the inner rounds.
-		innerResp, err := p.Prompt(model, messages, opts)
-		if err != nil {
-			return llm.Response{}, err
-		}
-		innerResp.Usage.InputTokens += currentUsage.InputTokens
-		innerResp.Usage.OutputTokens += currentUsage.OutputTokens
-		innerResp.Usage.CachedInputTokens += currentUsage.CachedInputTokens
-		return innerResp, nil
+		return turn, nil
 	}
 
-	// No function calls — return the text response
 	var text string
 	for _, part := range parts {
 		if part.Text != "" {
@@ -146,34 +129,21 @@ func (p *Provider) Prompt(model string, messages []llm.Message, opts llm.Options
 		}
 	}
 	if text == "" {
-		return llm.Response{}, errors.New("chat did not return any text content")
+		return llm.Turn{}, errors.New("chat did not return any text content")
 	}
 
-	// Append the final assistant message to the conversation.
-	messages = append(messages, llm.Message{
-		Role:    "assistant",
-		Content: text,
-	})
-
-	return llm.Response{
-		Value:        text,
-		Conversation: messages,
-		Usage:        currentUsage,
-	}, nil
+	return llm.Turn{Message: llm.Assistant(text), Usage: usage}, nil
 }
 
-// doRequest builds and sends a single generateContent request, returning the
-// parsed response. This is separated from Prompt so the tool-call loop can
-// call it repeatedly without duplicating HTTP logic.
 func (*Provider) doRequest(model string, messages []llm.Message, opts llm.Options) (*Response, error) {
 	apiKey, err := apikey.GoogleAiStudio()
 	if err != nil {
-		return nil, err
+		return nil, llm.Permanent(err)
 	}
 
 	contents, systemParts, err := convertMessages(messages)
 	if err != nil {
-		return nil, err
+		return nil, llm.Permanent(err)
 	}
 
 	var systemInstruction *SystemInstruction
@@ -183,38 +153,42 @@ func (*Provider) doRequest(model string, messages []llm.Message, opts llm.Option
 		}
 	}
 
-	var responseMimeType string
-	if opts.ResponseFormat == llm.ResponseFormatJsonObject {
-		responseMimeType = "application/json"
+	generationConfig := GenerationConfig{
+		MaxOutputTokens: opts.MaxTokens,
+		ThinkingConfig:  getThinkingConfig(model, opts.Thinking),
 	}
-
-	// Build tools and tool_config if tools are provided
-	geminiTools := convertTools(opts.Tools)
+	switch opts.ResponseFormat {
+	case llm.ResponseFormatJsonObject:
+		generationConfig.ResponseMimeType = "application/json"
+	case llm.ResponseFormatJsonSchema:
+		generationConfig.ResponseMimeType = "application/json"
+		generationConfig.ResponseJsonSchema = opts.JsonSchema.Schema
+	}
 
 	requestPayload := struct {
 		SystemInstruction *SystemInstruction `json:"system_instruction,omitempty"`
 		Contents          []Content          `json:"contents"`
 		GenerationConfig  GenerationConfig   `json:"generationConfig"`
 		Tools             []GeminiTool       `json:"tools,omitempty"`
+		ToolConfig        *ToolConfig        `json:"toolConfig,omitempty"`
 	}{
 		SystemInstruction: systemInstruction,
 		Contents:          contents,
-		GenerationConfig: GenerationConfig{
-			MaxOutputTokens:  opts.MaxTokens,
-			ResponseMimeType: responseMimeType,
-			ThinkingConfig:   getThinkingConfig(model, opts.Thinking),
-		},
-		Tools: geminiTools,
+		GenerationConfig:  generationConfig,
+		Tools:             convertTools(opts.Tools),
+	}
+	if len(opts.Tools) > 0 {
+		requestPayload.ToolConfig = toolConfig(opts.ToolChoice)
 	}
 
 	requestPayloadBytes, err := json.Marshal(requestPayload)
 	if err != nil {
-		return nil, fmt.Errorf("marshaling payload: %s", err.Error())
+		return nil, llm.Permanent(fmt.Errorf("marshaling payload: %s", err.Error()))
 	}
 	requestBody := bytes.NewReader(requestPayloadBytes)
 
 	var req *http.Request
-	url := "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent?key=" + apiKey
+	url := BaseURL + "/v1beta/models/" + model + ":generateContent?key=" + apiKey
 	method := "POST"
 	if opts.Ctx == nil {
 		req, err = http.NewRequest(method, url, requestBody)
@@ -222,7 +196,7 @@ func (*Provider) doRequest(model string, messages []llm.Message, opts llm.Option
 		req, err = http.NewRequestWithContext(opts.Ctx, method, url, requestBody)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("creating request: %s", err.Error())
+		return nil, llm.Permanent(fmt.Errorf("creating request: %s", err.Error()))
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -230,7 +204,7 @@ func (*Provider) doRequest(model string, messages []llm.Message, opts llm.Option
 	client := http.Client{Timeout: opts.Timeout}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("sending request: %s", err.Error())
+		return nil, fmt.Errorf("sending request: %w", err)
 	}
 	defer resp.Body.Close()
 

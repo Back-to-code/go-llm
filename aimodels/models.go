@@ -24,9 +24,9 @@ var (
 	// Should be used if the mini model is not good enough.
 	// By default the thinking level is left to the provider, it can be set inside llm.Options
 	// = PRICY - ULTRA TURBO EXPENSIVE
-	ChatGpt5   = register("gpt-5.6-sol", &openai.Provider{})
-	Gemini3Pro = register("gemini-3.1-pro-preview", &googleaistudio.Provider{})
-	Best       = ChatGpt5 // <- Default
+	ChatGpt6   = register("gpt-6.1-sol", &openai.Provider{})                    // Note that 6 astra is 2.5x the price
+	Gemini3Pro = register("gemini-3.1-pro-preview", &googleaistudio.Provider{}) // No newer or stable pro model exists yet
+	Best       = ChatGpt6                                                       // <- Default
 
 	// Mini models.
 	// When the nano model is not good enough but the good model is somewhat too expensive
@@ -40,8 +40,8 @@ var (
 	// For basic llm tasks mainly smart parttern matching tasks are these models perfect for
 	// Or giving simple things a score.
 	// = DIRT CHEAP
-	ChatGpt5Nano = register("gpt-5-nano", &openai.Provider{})                    // Note that 5.4 nano and 5.6 luna are much more expensive
-	Gemini2Flash = register("gemini-2.5-flash-lite", &googleaistudio.Provider{}) // Note that 3.5 flash lite is much more expensive than 2.5 flash lite
-	Mercury2     = register("mercury-2", &inception.Provider{})
-	Nano         = ChatGpt5Nano // <- Default
+	// No Gemini model is cheap enough for this tier.
+	ChatGpt6Nano = register("gpt-6-luna", &openai.Provider{})
+	Mercury2     = register("mercury-2.5", &inception.Provider{})
+	Nano         = ChatGpt6Nano // <- Default
 )

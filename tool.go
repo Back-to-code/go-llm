@@ -22,3 +22,9 @@ type Tool struct {
 	Function FunctionDef `json:"function"`
 	Strict   bool        `json:"strict"`
 }
+
+type ToolCall struct {
+	Id        string // Matches the tool message answering it to this call
+	Name      string
+	Arguments json.RawMessage
+}

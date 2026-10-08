@@ -44,7 +44,10 @@ type Tool struct {
 }
 
 type TextFormat struct {
-	Type string `json:"type"`
+	Type   string          `json:"type"`
+	Name   string          `json:"name,omitempty"`
+	Schema json.RawMessage `json:"schema,omitempty"`
+	Strict bool            `json:"strict,omitempty"`
 }
 
 type TextConfig struct {
@@ -149,33 +152,49 @@ func mentionsJson(messages []llm.Message) bool {
 	return false
 }
 
+func textFormat(messages []llm.Message, options llm.Options) (TextFormat, error) {
+	switch options.ResponseFormat {
+	case "":
+		return TextFormat{Type: "text"}, nil
+	case llm.ResponseFormatJsonObject:
+		if !mentionsJson(messages) {
+			return TextFormat{}, errors.New(`response format json_object requires a message mentioning "json"`)
+		}
+	case llm.ResponseFormatJsonSchema:
+		return TextFormat{
+			Type:   "json_schema",
+			Name:   options.JsonSchema.Name,
+			Schema: options.JsonSchema.Schema,
+			Strict: options.JsonSchema.Strict,
+		}, nil
+	}
+
+	return TextFormat{Type: string(options.ResponseFormat)}, nil
+}
+
 func createRequest(stream bool, model string, messages []llm.Message, options llm.Options) (io.ReadCloser, error) {
 	input, err := toInput(messages)
 	if err != nil {
-		return nil, err
+		return nil, llm.Permanent(err)
 	}
 
-	responseFormat := "text"
-	if options.ResponseFormat != "" {
-		responseFormat = string(options.ResponseFormat)
-	}
-
-	if responseFormat == "json_object" && !mentionsJson(messages) {
-		return nil, errors.New(`response format json_object requires a message mentioning "json"`)
+	format, err := textFormat(messages, options)
+	if err != nil {
+		return nil, llm.Permanent(err)
 	}
 
 	reqBody := InferenceRequest{
 		Stream:          stream,
 		Model:           model,
 		Input:           input,
-		Text:            TextConfig{Format: TextFormat{Type: responseFormat}},
+		Text:            TextConfig{Format: format},
 		Store:           false,
 		Tools:           toTools(options.Tools),
 		MaxOutputTokens: options.MaxTokens,
 	}
 
 	if len(options.Tools) > 0 {
-		reqBody.ToolChoice = "auto"
+		reqBody.ToolChoice = string(options.ToolChoice)
 	}
 
 	if effort := reasoningEffort(model, options.Thinking); effort != "" {
@@ -192,7 +211,7 @@ func createRequest(stream bool, model string, messages []llm.Message, options ll
 
 	resp, err := newRequest("/v1/responses", reqBody, options.Timeout, options.Ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to send responses request: %s", err.Error())
+		return nil, fmt.Errorf("failed to send responses request: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -233,10 +252,10 @@ func (*Provider) SupportsTools() bool {
 	return true
 }
 
-func (p *Provider) Prompt(model string, messages []llm.Message, options llm.Options) (llm.Response, error) {
+func (*Provider) Call(model string, messages []llm.Message, options llm.Options) (llm.Turn, error) {
 	resp, err := createRequest(false, model, messages, options)
 	if err != nil {
-		return llm.Response{}, err
+		return llm.Turn{}, err
 	}
 	defer resp.Close()
 
@@ -259,17 +278,17 @@ func (p *Provider) Prompt(model string, messages []llm.Message, options llm.Opti
 	}{}
 	err = json.NewDecoder(resp).Decode(&respContent)
 	if err != nil {
-		return llm.Response{}, err
+		return llm.Turn{}, err
 	}
 
 	if respContent.Error != nil && respContent.Error.Message != "" {
-		return llm.Response{}, errors.New(respContent.Error.Message)
+		return llm.Turn{}, errors.New(respContent.Error.Message)
 	}
 	if len(respContent.Output) == 0 {
-		return llm.Response{}, errors.New("no responses")
+		return llm.Turn{}, errors.New("no responses")
 	}
 
-	currentUsage := llm.TokenUsage{
+	usage := llm.TokenUsage{
 		InputTokens:       respContent.Usage.InputTokens,
 		OutputTokens:      respContent.Usage.OutputTokens,
 		CachedInputTokens: respContent.Usage.InputTokensDetails.CachedTokens,
@@ -281,7 +300,7 @@ func (p *Provider) Prompt(model string, messages []llm.Message, options llm.Opti
 	for _, rawItem := range respContent.Output {
 		var item OutputItem
 		if err := json.Unmarshal(rawItem, &item); err != nil {
-			return llm.Response{}, fmt.Errorf("failed to unmarshal response: %s", err.Error())
+			return llm.Turn{}, fmt.Errorf("failed to unmarshal response: %s", err.Error())
 		}
 
 		switch item.Type {
@@ -300,7 +319,7 @@ func (p *Provider) Prompt(model string, messages []llm.Message, options llm.Opti
 	}
 
 	// A truncated response can hold a half written function call, so the tool
-	// call loop below is skipped for one.
+	// calls of one are dropped.
 	truncated := respContent.Status == "incomplete"
 	if truncated {
 		reason := "unknown reason"
@@ -308,7 +327,7 @@ func (p *Provider) Prompt(model string, messages []llm.Message, options llm.Opti
 			reason = respContent.IncompleteDetail.Reason
 		}
 		if text.Len() == 0 {
-			return llm.Response{}, errors.New("incomplete response: " + reason)
+			return llm.Turn{}, errors.New("incomplete response: " + reason)
 		}
 		log.Info("llm response incomplete (" + reason + "), returning partial content")
 	}
@@ -319,98 +338,36 @@ func (p *Provider) Prompt(model string, messages []llm.Message, options llm.Opti
 		// train of thought between tool calls.
 		outputItems, err := json.Marshal(respContent.Output)
 		if err != nil {
-			return llm.Response{}, fmt.Errorf("failed to marshal tools: %s", err.Error())
+			return llm.Turn{}, fmt.Errorf("failed to marshal tools: %s", err.Error())
 		}
-		messages = append(messages, llm.Message{
-			Role:      "assistant",
-			ToolCalls: outputItems,
-		})
 
+		turn := llm.Turn{
+			Message: llm.Message{Role: "assistant", ToolCalls: outputItems},
+			Usage:   usage,
+		}
 		for _, toolCall := range toolCalls {
-			foundTool := false
-			var response any
-			var resolveErr error
-			log.Info("llm tool call " + toolCall.Name)
-			for _, tool := range options.Tools {
-				if toolCall.Name != tool.Function.Name {
-					continue
-				}
-				foundTool = true
-
-				var arguments json.RawMessage
-				if uerr := json.Unmarshal([]byte(toolCall.Arguments), &arguments); uerr != nil {
-					arguments = json.RawMessage("null")
-				}
-
-				response, resolveErr = tool.Resolver(arguments)
-				break
+			var arguments json.RawMessage
+			if uerr := json.Unmarshal([]byte(toolCall.Arguments), &arguments); uerr != nil {
+				arguments = json.RawMessage("null")
 			}
-			if !foundTool {
-				messages = append(messages, llm.Message{
-					Role:       "tool",
-					Content:    "error: not found",
-					ToolCallId: toolCall.CallId,
-				})
-				continue
-			}
-
-			if resolveErr != nil {
-				messages = append(messages, llm.Message{
-					Role:       "tool",
-					Content:    "error: " + resolveErr.Error(),
-					ToolCallId: toolCall.CallId,
-				})
-				continue
-			}
-
-			responseJson, err := json.Marshal(response)
-			if err != nil {
-				messages = append(messages, llm.Message{
-					Role:       "tool",
-					Content:    "error: " + err.Error(),
-					ToolCallId: toolCall.CallId,
-				})
-				continue
-			}
-
-			messages = append(messages, llm.Message{
-				Role:       "tool",
-				Content:    string(responseJson),
-				ToolCallId: toolCall.CallId,
+			turn.ToolCalls = append(turn.ToolCalls, llm.ToolCall{
+				Id:        toolCall.CallId,
+				Name:      toolCall.Name,
+				Arguments: arguments,
 			})
 		}
-
-		// Recurse to continue the conversation after tool calls.
-		// Accumulate token usage from this round with the inner rounds.
-		innerResp, err := p.Prompt(model, messages, options)
-		if err != nil {
-			return llm.Response{}, err
-		}
-		innerResp.Usage.InputTokens += currentUsage.InputTokens
-		innerResp.Usage.OutputTokens += currentUsage.OutputTokens
-		innerResp.Usage.CachedInputTokens += currentUsage.CachedInputTokens
-		return innerResp, nil
+		return turn, nil
 	}
 
 	if text.Len() == 0 {
 		if refusal != "" {
-			return llm.Response{}, errors.New("refused: " + refusal)
+			return llm.Turn{}, errors.New("refused: " + refusal)
 		}
 
-		return llm.Response{}, errors.New("missing content")
+		return llm.Turn{}, errors.New("missing content")
 	}
 
-	// Append the final assistant message to the conversation.
-	messages = append(messages, llm.Message{
-		Role:    "assistant",
-		Content: text.String(),
-	})
-
-	return llm.Response{
-		Value:        text.String(),
-		Conversation: messages,
-		Usage:        currentUsage,
-	}, nil
+	return llm.Turn{Message: llm.Assistant(text.String()), Usage: usage}, nil
 }
 
 // streamDelta returns the text delta of one SSE data payload, or "" for every
