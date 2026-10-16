@@ -88,6 +88,10 @@ type Options struct {
 	ToolChoice     ToolChoice
 	Thinking       Thinking
 
+	// Priority buys faster processing at a higher price per token. Only the
+	// OpenAI provider implements it, the others ignore it.
+	Priority bool
+
 	// Shared by the models of a FallbackModel, so they spend one budget.
 	toolCallsUsed *int
 }
