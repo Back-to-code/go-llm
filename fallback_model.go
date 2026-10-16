@@ -3,6 +3,7 @@ package llm
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -44,10 +45,24 @@ func (f *FallbackModel) Prompt(messages []Message, options Options) (Response, e
 		options.toolCallsUsed = new(int)
 	}
 
+	interject := options.Interject
+	var interjected []Message
+
 	var lastErr error
 	for _, model := range f.Models {
 		if options.Ctx != nil && options.Ctx.Err() != nil {
 			return Response{}, options.Ctx.Err()
+		}
+		if interject != nil {
+			// A failed model took messages the caller won't hand out again.
+			replay := slices.Clone(interjected)
+			options.Interject = func() []Message {
+				fresh := interject()
+				interjected = append(interjected, fresh...)
+				messages := slices.Concat(replay, fresh)
+				replay = nil
+				return messages
+			}
 		}
 		resp, err := model.Prompt(messages, options)
 		if err == nil {

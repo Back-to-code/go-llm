@@ -70,6 +70,14 @@ type Options struct {
 	OnCallEnd   func(CallInfo, CallResult)
 	OnToolCall  func(ToolResult)
 
+	// Interject is asked for messages before the first model request of
+	// Prompt, after every tool round and after every answer. They go into the
+	// conversation before the next request, so after an answer they make Prompt
+	// ask the model again: it returns once the model answers and Interject has
+	// nothing. Interjecting adds nothing to MaxToolCalls. Called synchronously
+	// from Prompt, never by Stream; it cannot be combined with Cache.
+	Interject func() []Message
+
 	// Implemented by each providers
 	Timeout        time.Duration // The request timeout
 	MaxTokens      int
@@ -125,6 +133,9 @@ func (o Options) prepare(isStream bool, provider Provider) (Options, error) {
 	}
 	if o.MaxToolCalls == 0 {
 		o.MaxToolCalls = DefaultMaxToolCalls
+	}
+	if o.Cache > 0 && o.Interject != nil {
+		return o, errors.New("Cache cannot be combined with Interject, the answer depends on the interjected messages")
 	}
 
 	if o.Timeout <= 0 {

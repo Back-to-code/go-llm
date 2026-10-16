@@ -39,8 +39,10 @@ func (m *Model) runToolLoop(messages []Message, options Options) (Response, erro
 	budgetUsedUp := func() bool { return *used >= options.MaxToolCalls }
 	callerChoseNone := options.ToolChoice == ToolChoiceNone
 	roundsPastBudget := 0
+	interjected := interject(options)
 
 	for index := 0; ; index++ {
+		conversation = append(conversation, interjected...)
 		if budgetUsedUp() {
 			// Tools stay in the request: some APIs reject a tool choice without
 			// them, and dropping them breaks the prompt cache.
@@ -55,6 +57,13 @@ func (m *Model) runToolLoop(messages []Message, options Options) (Response, erro
 		conversation = append(conversation, turn.Message)
 
 		if len(turn.ToolCalls) == 0 {
+			interjected = interject(options)
+			if len(interjected) > 0 {
+				if !callerChoseNone {
+					options.ToolChoice = ToolChoiceAuto
+				}
+				continue
+			}
 			return Response{
 				Value:        turn.Message.Content,
 				Conversation: conversation,
@@ -77,7 +86,15 @@ func (m *Model) runToolLoop(messages []Message, options Options) (Response, erro
 			}
 		}
 		options.ToolChoice = ToolChoiceAuto
+		interjected = interject(options)
 	}
+}
+
+func interject(options Options) []Message {
+	if options.Interject == nil {
+		return nil
+	}
+	return options.Interject()
 }
 
 // answerToolCalls returns one tool message per call. Every call of a turn

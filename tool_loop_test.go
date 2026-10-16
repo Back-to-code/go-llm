@@ -7,6 +7,7 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"time"
 
 	llm "github.com/Back-to-code/go-llm"
 )
@@ -428,6 +429,11 @@ func TestPromptRejectsInvalidOptions(t *testing.T) {
 			options:         llm.Options{Tools: tools, MaxToolCalls: -1},
 			wantErrContains: "cannot be negative",
 		},
+		{
+			name:            "Cache with Interject",
+			options:         llm.Options{Cache: time.Hour, Interject: func() []llm.Message { return nil }},
+			wantErrContains: "cannot be combined with Interject",
+		},
 	}
 
 	for _, tc := range cases {
@@ -463,5 +469,131 @@ func TestJsonSchemaNameDefaultsToResponse(t *testing.T) {
 	}
 	if got.Name != "response" {
 		t.Errorf("schema name = %q, want response", got.Name)
+	}
+}
+
+// interjectOnce hands out messages on the given ask of Interject, counting from 1.
+func interjectOnce(ask int, messages ...llm.Message) (func() []llm.Message, *int) {
+	asked := 0
+	return func() []llm.Message {
+		asked++
+		if asked == ask {
+			return messages
+		}
+		return nil
+	}, &asked
+}
+
+func TestInterjectedMessagesGoBeforeTheNextRequest(t *testing.T) {
+	provider, _, requests := greedyProvider(1)
+	model := &llm.Model{Name: "stub", Provider: provider}
+
+	interject, asked := interjectOnce(2, llm.User("answers"))
+	var runs int
+	resp, err := model.Prompt([]llm.Message{llm.User("hi")}, llm.Options{
+		NoRetry:      true,
+		Tools:        []llm.Tool{lookupTool(&runs, "ok")},
+		MaxToolCalls: 2,
+		Interject:    interject,
+	})
+	if err != nil {
+		t.Fatalf("Prompt() error = %v", err)
+	}
+	if resp.Value != "final" {
+		t.Errorf("Value = %q, want final", resp.Value)
+	}
+	if *asked != 4 {
+		t.Errorf("Interject asked %d times, want before the first request, after both tool rounds and after the answer", *asked)
+	}
+
+	second := (*requests)[1]
+	if got := second[len(second)-2:]; got[0].Role != "tool" || got[1].Role != "user" || got[1].Content != "answers" {
+		t.Errorf("second request ends with %+v, want the tool output followed by the interjected message", got)
+	}
+	if got := resp.Conversation[3]; got.Role != "user" || got.Content != "answers" {
+		t.Errorf("conversation[3] = %+v, want the interjected message", got)
+	}
+}
+
+func TestInterjectingAfterTheAnswerAsksTheModelAgain(t *testing.T) {
+	var choices []llm.ToolChoice
+	provider := &stubProvider{}
+	provider.callFn = func(_ string, _ []llm.Message, options llm.Options) (llm.Turn, error) {
+		choices = append(choices, options.ToolChoice)
+		return llm.Turn{Message: llm.Assistant(fmt.Sprintf("answer %d", provider.calls.Load()))}, nil
+	}
+	model := &llm.Model{Name: "stub", Provider: provider}
+
+	interject, asked := interjectOnce(2, llm.User("answers"))
+	var runs int
+	resp, err := model.Prompt([]llm.Message{llm.User("hi")}, llm.Options{
+		NoRetry:    true,
+		Tools:      []llm.Tool{lookupTool(&runs, "ok")},
+		ToolChoice: llm.ToolChoiceRequired,
+		Interject:  interject,
+	})
+	if err != nil {
+		t.Fatalf("Prompt() error = %v", err)
+	}
+	if resp.Value != "answer 2" {
+		t.Errorf("Value = %q, want answer 2", resp.Value)
+	}
+	if *asked != 3 {
+		t.Errorf("Interject asked %d times, want before the first request and after both answers", *asked)
+	}
+	if want := []llm.ToolChoice{llm.ToolChoiceRequired, llm.ToolChoiceAuto}; fmt.Sprint(choices) != fmt.Sprint(want) {
+		t.Errorf("tool choices = %v, want %v", choices, want)
+	}
+
+	var got []string
+	for _, msg := range resp.Conversation {
+		got = append(got, msg.Role+": "+msg.Content)
+	}
+	want := []string{"user: hi", "assistant: answer 1", "user: answers", "assistant: answer 2"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("conversation = %q, want %q", got, want)
+	}
+}
+
+func TestFallbackModelReplaysTheMessagesAFailedModelTook(t *testing.T) {
+	failing := &stubProvider{}
+	failing.callFn = func(string, []llm.Message, llm.Options) (llm.Turn, error) {
+		if failing.calls.Load() == 1 {
+			return toolTurn(lookupCall("call_1")), nil
+		}
+		return llm.Turn{}, &llm.Err{StatusCode: 400, Body: "bad"}
+	}
+	var fallbackRequests [][]llm.Message
+	fallback := &stubProvider{callFn: func(_ string, messages []llm.Message, _ llm.Options) (llm.Turn, error) {
+		fallbackRequests = append(fallbackRequests, messages)
+		return llm.Turn{Message: llm.Assistant("final")}, nil
+	}}
+
+	interject, _ := interjectOnce(2, llm.User("answers"))
+	var runs int
+	resp, err := llm.NewFallbackModel(
+		&llm.Model{Name: "failing", Provider: failing},
+		&llm.Model{Name: "fallback", Provider: fallback},
+	).Prompt([]llm.Message{llm.User("hi")}, llm.Options{
+		NoRetry:   true,
+		Tools:     []llm.Tool{lookupTool(&runs, "ok")},
+		Interject: interject,
+	})
+	if err != nil {
+		t.Fatalf("Prompt() error = %v", err)
+	}
+	if resp.Value != "final" {
+		t.Errorf("Value = %q, want final", resp.Value)
+	}
+	if failing.calls.Load() != 2 {
+		t.Fatalf("failing provider calls = %d, want the tool call and the failed request after the interjection", failing.calls.Load())
+	}
+
+	var got []string
+	for _, msg := range fallbackRequests[0] {
+		got = append(got, msg.Role+": "+msg.Content)
+	}
+	if want := []string{"user: hi", "user: answers"}; fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("first fallback request = %q, want %q", got, want)
 	}
 }
