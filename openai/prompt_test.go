@@ -498,3 +498,25 @@ func TestToolChoiceIsSent(t *testing.T) {
 		})
 	}
 }
+
+func TestPriorityServiceTierIsSent(t *testing.T) {
+	os.Setenv("OPENAI_TOKEN", "test-token")
+	defer os.Unsetenv("OPENAI_TOKEN")
+
+	for _, priority := range []bool{true, false} {
+		_, request := serveResponse(t, `{"status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hi"}]}]}`)
+
+		p := &Provider{}
+		if _, err := p.Call("gpt-5.4-mini", []llm.Message{llm.User("hi")}, llm.Options{Priority: priority}); err != nil {
+			t.Fatalf("Call returned error: %v", err)
+		}
+
+		tier, sent := (*request)["service_tier"]
+		if priority && tier != "priority" {
+			t.Errorf("service_tier = %v, want priority", tier)
+		}
+		if !priority && sent {
+			t.Errorf("service_tier = %v, want it absent so the project default applies", tier)
+		}
+	}
+}

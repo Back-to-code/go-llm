@@ -69,6 +69,7 @@ type InferenceRequest struct {
 	ToolChoice      string           `json:"tool_choice,omitempty"`
 	Reasoning       *ReasoningConfig `json:"reasoning,omitempty"`
 	Include         []string         `json:"include,omitempty"`
+	ServiceTier     string           `json:"service_tier,omitempty"`
 }
 
 // toInput converts the provider agnostic messages into Responses API input
@@ -199,6 +200,10 @@ func createRequest(stream bool, model string, messages []llm.Message, options ll
 
 	if effort := reasoningEffort(model, options.Thinking); effort != "" {
 		reqBody.Reasoning = &ReasoningConfig{Effort: effort}
+	}
+
+	if options.Priority {
+		reqBody.ServiceTier = "priority"
 	}
 
 	// With store false, reasoning items only come back replayable if we ask for
