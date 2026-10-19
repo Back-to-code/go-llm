@@ -29,6 +29,14 @@ func TestGetThinkingConfig(t *testing.T) {
 		{model: "gemini-3.1-flash-lite", thinking: llm.LowThinking, want: "level:LOW"},
 		{model: "models/gemini-3.8-flash", thinking: llm.HighThinking, want: "level:HIGH"},
 
+		{model: "gemini-4-argon", thinking: llm.AutoThinking, want: "none"},
+		{model: "gemini-4-argon", thinking: llm.NoThinking, want: "level:LOW"},
+		{model: "gemini-4-argon", thinking: llm.MinimalThinking, want: "level:LOW"},
+		{model: "gemini-4-argon", thinking: llm.LowThinking, want: "level:LOW"},
+		{model: "gemini-4-argon", thinking: llm.MediumThinking, want: "level:MEDIUM"},
+		{model: "gemini-4-argon", thinking: llm.HighThinking, want: "level:HIGH"},
+		{model: "models/gemini-4.1-neon-preview-05-2027", thinking: llm.NoThinking, want: "level:LOW"},
+
 		{model: "gemini-2.5-flash-lite", thinking: llm.NoThinking, want: "budget:0"},
 		{model: "gemini-2.5-flash-lite", thinking: llm.MinimalThinking, want: "budget:512"},
 		{model: "gemini-2.5-flash", thinking: llm.HighThinking, want: "budget:24576"},
@@ -39,6 +47,10 @@ func TestGetThinkingConfig(t *testing.T) {
 		{model: "gemini-3.1-flash-lite-image", thinking: llm.LowThinking, want: "none"},
 		{model: "gemini-3.8-flash-tts", thinking: llm.LowThinking, want: "none"},
 		{model: "gemini-flash-latest", thinking: llm.LowThinking, want: "none"},
+		{model: "gemini-4-argon-tts", thinking: llm.LowThinking, want: "none"},
+		{model: "gemini-4-image-preview", thinking: llm.LowThinking, want: "none"},
+		{model: "gemini-4-computer-use-preview", thinking: llm.MediumThinking, want: "none"},
+		{model: "gemini-3.5-argon", thinking: llm.MediumThinking, want: "none"},
 	}
 
 	for _, tc := range cases {
