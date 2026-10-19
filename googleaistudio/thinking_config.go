@@ -16,6 +16,11 @@ type ThinkingConfig struct {
 
 var modelPattern = regexp.MustCompile(`^(?:models/)?gemini-(\d+)(?:\.(\d+))?-(pro|flash-lite|flash)\b`)
 
+// Gemini 4 names its models (gemini-4-argon) instead of tiering them into pro
+// and flash. Only a one-word name followed by release tags counts, so
+// specialised models such as gemini-4-computer-use stay on their default.
+var namedModelPattern = regexp.MustCompile(`^(?:models/)?gemini-(\d+)(?:\.(\d+))?-([a-z]+)(?:-(?:preview|exp|\d+))*$`)
+
 // Image, speech and live variants share a family name but accept other levels
 // than its text models, if any.
 var nonTextVariants = []string{"-image", "-tts", "-audio", "-live"}
@@ -32,7 +37,15 @@ func parseModel(model string) (geminiModel, bool) {
 		}
 	}
 
-	match := modelPattern.FindStringSubmatch(model)
+	if parsed, ok := matchModel(modelPattern, model); ok {
+		return parsed, true
+	}
+	parsed, ok := matchModel(namedModelPattern, model)
+	return parsed, ok && parsed.version >= 400
+}
+
+func matchModel(pattern *regexp.Regexp, model string) (geminiModel, bool) {
+	match := pattern.FindStringSubmatch(model)
 	if match == nil {
 		return geminiModel{}, false
 	}
@@ -87,8 +100,8 @@ func thinkingBudget(variant string, thinking llm.Thinking) *int {
 	return &budget
 }
 
-// thinkingLevel maps onto the nearest level the model accepts. No Gemini 3
-// model can turn thinking off, so NoThinking gets the lowest level.
+// thinkingLevel maps onto the nearest level the model accepts. No level turns
+// thinking off, so NoThinking gets the lowest one.
 func thinkingLevel(model geminiModel, thinking llm.Thinking) string {
 	switch thinking {
 	case llm.LowThinking:
@@ -103,9 +116,9 @@ func thinkingLevel(model geminiModel, thinking llm.Thinking) string {
 		return "HIGH"
 	}
 
-	// Pro and Flash from 3.7 on reject MINIMAL with an error.
-	if model.variant == "pro" || (model.variant == "flash" && model.version >= 307) {
-		return "LOW"
+	// Pro, Flash from 3.7 on and Argon reject MINIMAL with an error.
+	if model.variant == "flash-lite" || (model.variant == "flash" && model.version < 307) {
+		return "MINIMAL"
 	}
-	return "MINIMAL"
+	return "LOW"
 }
