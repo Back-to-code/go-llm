@@ -278,55 +278,66 @@ func cacheKey(model string, messages []Message, options Options) (string, error)
 
 // call sends one model request, retrying it on transient errors.
 func (m *Model) call(index int, messages []Message, options Options) (Turn, error) {
+	info := CallInfo{Model: m.Name, Index: index, ToolChoice: options.ToolChoice, Messages: messages}
+	hooks := attemptHooks{ctx: options.Ctx, noRetry: options.NoRetry, onStart: options.OnCallStart, onEnd: options.OnCallEnd}
+
+	return withRetries(info, hooks, func() (Turn, CallResult, error) {
+		turn, err := m.Provider.Call(m.Name, messages, options)
+		return turn, CallResult{Value: turn.Message.Content, ToolCalls: turn.ToolCalls, Usage: turn.Usage}, err
+	})
+}
+
+type attemptHooks struct {
+	ctx     context.Context
+	noRetry bool
+	onStart func(CallInfo)
+	onEnd   func(CallInfo, CallResult)
+}
+
+// withRetries runs send until it succeeds, fails permanently, ctx ends or the attempts run out, and reports every
+// attempt to the hooks. send fills the fields of the CallResult it knows, withRetries the timing and the error.
+func withRetries[T any](info CallInfo, hooks attemptHooks, send func() (T, CallResult, error)) (T, error) {
 	retries := 5
-	if options.NoRetry {
+	if hooks.noRetry {
 		retries = 1
 	}
 
+	var zero T
 	var err error
 	for attempt := 1; attempt <= retries; attempt++ {
-		if options.Ctx != nil && options.Ctx.Err() != nil {
-			return Turn{}, options.Ctx.Err()
+		if hooks.ctx != nil && hooks.ctx.Err() != nil {
+			return zero, hooks.ctx.Err()
 		}
 
-		info := CallInfo{
-			Model:      m.Name,
-			Index:      index,
-			Attempt:    attempt,
-			ToolChoice: options.ToolChoice,
-			Messages:   messages,
-		}
-		if options.OnCallStart != nil {
-			options.OnCallStart(info)
+		info.Attempt = attempt
+		if hooks.onStart != nil {
+			hooks.onStart(info)
 		}
 
 		start := time.Now()
-		var turn Turn
-		turn, err = m.Provider.Call(m.Name, messages, options)
+		var value T
+		var result CallResult
+		value, result, err = send()
 		duration := time.Since(start)
-		cancelled := options.Ctx != nil && options.Ctx.Err() != nil
+		cancelled := hooks.ctx != nil && hooks.ctx.Err() != nil
 		retrying := err != nil && !IsPermanent(err) && !cancelled && attempt < retries
 
-		if options.OnCallEnd != nil {
-			options.OnCallEnd(info, CallResult{
-				Value:     turn.Message.Content,
-				ToolCalls: turn.ToolCalls,
-				Usage:     turn.Usage,
-				Duration:  duration,
-				Err:       err,
-				Retrying:  retrying,
-			})
+		if hooks.onEnd != nil {
+			result.Duration = duration
+			result.Err = err
+			result.Retrying = retrying
+			hooks.onEnd(info, result)
 		}
 
 		if !retrying {
-			return turn, err
+			return value, err
 		}
 		if duration < time.Second {
 			time.Sleep(time.Millisecond * 100 * time.Duration(attempt))
 		}
 	}
 
-	return Turn{}, err
+	return zero, err
 }
 
 // PromptSingle is a wrapper around prompt but only prompt 1 user message
