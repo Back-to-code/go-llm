@@ -12,6 +12,7 @@ The following providers and features are supported:
 | Streaming                       | ✔️                            |                                                  |                                        | ✔️                                         |
 | Tools                           | ✔️                            | ✔️                                               |                                        | ✔️                                         |
 | Tool choice                     | ✔️                            | ✔️                                               |                                        | ✔️                                         |
+| Decisions                       | ✔️                            |                                                  |                                        |                                            |
 
 DO NOT MAKE THIS REPO PRIVATE! This library can now be easially imported from other go project without having to configured annoying shell variables.
 
@@ -93,3 +94,26 @@ resp, err := model.Prompt(messages, llm.Options{
 ```
 
 A resolver returning a `string` or `json.RawMessage` is sent to the model as is, any other value is JSON encoded. An empty result is sent as `""`.
+
+## Decisions
+
+`Decide` answers questions about an input with one of their fixed answers and the probability of each, instead of generated text. It asks the OpenAI Decisions API (`POST /v1/decisions`) in one request and retries transient errors like `Prompt`.
+
+```go
+decisions, err := aimodels.ChatGpt6Nano.Decide("Zoekwens: kok in Amsterdam", []llm.Question{
+    {Name: "sector", Type: llm.QuestionChoice, Instructions: "Which sector is the wish about?", Choices: []llm.Choice{
+        {Value: "horeca", Description: "Restaurants, hotels and catering"},
+        {Value: "zorg"},
+    }},
+    {Name: "manager", Type: llm.QuestionPredicate, Instructions: "Does the wish ask for a manager?"},
+    {Name: "level", Type: llm.QuestionScore, Instructions: "Which level?", Levels: []llm.Level{{Label: "junior"}, {Label: "medior"}, {Label: "senior"}}},
+}, llm.DecisionOptions{})
+
+sector, _ := decisions.Answer("sector")
+sector.Choice                   // "horeca"
+sector.ProbabilityOf("zorg")    // 0.02
+manager, _ := decisions.Answer("manager")
+manager.Probability             // 0.04
+```
+
+The probabilities are calibrated, so act on them with thresholds and keep a way out: add a choice like `none` for an input no choice fits, and go on without the decision when the call fails. `ExampleModel_Decide` in [example_decide_test.go](example_decide_test.go) routes a support question that way.

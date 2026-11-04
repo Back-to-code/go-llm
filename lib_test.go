@@ -292,6 +292,33 @@ func TestOpenAI(t *testing.T) {
 	})
 }
 
+func TestOpenAIDecisions(t *testing.T) {
+	skipIfEnvMissing(t, "OPENAI_TOKEN")
+
+	model := &llm.Model{Name: "gpt-6-luna", Provider: &openai.Provider{}}
+	decisions, err := model.Decide("The sky is blue and the grass is green.", []llm.Question{
+		{Name: "sky", Type: llm.QuestionChoice, Instructions: "Which color does the text give the sky?", Choices: []llm.Choice{
+			{Value: "blue"}, {Value: "green"}, {Value: "red"},
+		}},
+		{Name: "colors", Type: llm.QuestionPredicate, Instructions: "Does the text name colors?"},
+	}, llm.DecisionOptions{NoRetry: true})
+	if err != nil {
+		t.Fatalf("Decide() error = %v", err)
+	}
+
+	sky, _ := decisions.Answer("sky")
+	if sky.Choice != "blue" || sky.ProbabilityOf("blue") < 0.5 {
+		t.Errorf("sky answer = %+v, want blue", sky)
+	}
+	colors, _ := decisions.Answer("colors")
+	if colors.Probability < 0.5 {
+		t.Errorf("colors answer = %+v, want a probability above 0.5", colors)
+	}
+	if decisions.Usage.InputTokens == 0 {
+		t.Error("expected input tokens in the usage")
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Google AI Studio
 // ---------------------------------------------------------------------------
