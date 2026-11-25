@@ -39,8 +39,14 @@ type Content struct {
 	Parts []Part `json:"parts"`
 }
 
+type InlineData struct {
+	MimeType string `json:"mimeType"`
+	Data     []byte `json:"data"`
+}
+
 type Part struct {
 	Text             string            `json:"text,omitempty"`
+	InlineData       *InlineData       `json:"inlineData,omitempty"`
 	FunctionCall     *FunctionCall     `json:"functionCall,omitempty"`
 	FunctionResponse *FunctionResponse `json:"functionResponse,omitempty"`
 	ThoughtSignature string            `json:"thoughtSignature,omitempty"`
@@ -66,6 +72,10 @@ func (*Provider) SupportsStreaming() bool {
 }
 
 func (*Provider) SupportsTools() bool {
+	return true
+}
+
+func (*Provider) SupportsImages() bool {
 	return true
 }
 

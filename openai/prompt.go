@@ -2,6 +2,7 @@ package openai
 
 import (
 	"bufio"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,8 +16,10 @@ import (
 
 // InputContent is a single content part of an input message.
 type InputContent struct {
-	Type string `json:"type"` // "input_text" for user/developer, "output_text" for assistant
-	Text string `json:"text"`
+	Type     string `json:"type"` // "input_text" for user/developer, "output_text" for assistant, "input_image"
+	Text     string `json:"text,omitempty"`
+	ImageUrl string `json:"image_url,omitempty"`
+	Detail   string `json:"detail,omitempty"`
 }
 
 // InputMessage is a plain conversation message in the request input.
@@ -100,7 +103,7 @@ func toInput(messages []llm.Message) ([]any, error) {
 			continue
 		}
 
-		if msg.Content == "" {
+		if msg.Content == "" && len(msg.Images) == 0 {
 			continue
 		}
 
@@ -113,9 +116,21 @@ func toInput(messages []llm.Message) ([]any, error) {
 			contentType = "output_text"
 		}
 
+		content := []InputContent{}
+		if msg.Content != "" {
+			content = append(content, InputContent{Type: contentType, Text: msg.Content})
+		}
+		for _, image := range msg.Images {
+			content = append(content, InputContent{
+				Type:     "input_image",
+				ImageUrl: "data:" + image.MimeType + ";base64," + base64.StdEncoding.EncodeToString(image.Data),
+				Detail:   string(image.Detail),
+			})
+		}
+
 		input = append(input, InputMessage{
 			Role:    role,
-			Content: []InputContent{{Type: contentType, Text: msg.Content}},
+			Content: content,
 		})
 	}
 
@@ -254,6 +269,10 @@ func (*Provider) SupportsStreaming() bool {
 }
 
 func (*Provider) SupportsTools() bool {
+	return true
+}
+
+func (*Provider) SupportsImages() bool {
 	return true
 }
 

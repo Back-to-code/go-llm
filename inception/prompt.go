@@ -122,6 +122,10 @@ func (*Provider) SupportsTools() bool {
 	return true
 }
 
+func (*Provider) SupportsImages() bool {
+	return false
+}
+
 func (*Provider) Call(model string, messages []llm.Message, options llm.Options) (llm.Turn, error) {
 	resp, err := createRequest(false, model, messages, options)
 	if err != nil {

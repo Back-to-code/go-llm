@@ -42,6 +42,9 @@ func (m *Model) runToolLoop(messages []Message, options Options) (Response, erro
 	interjected := interject(options)
 
 	for index := 0; ; index++ {
+		if err := checkImages(interjected, m.Provider); err != nil {
+			return Response{}, err
+		}
 		conversation = append(conversation, interjected...)
 		if budgetUsedUp() {
 			// Tools stay in the request: some APIs reject a tool choice without

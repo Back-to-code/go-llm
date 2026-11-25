@@ -520,3 +520,25 @@ func TestPriorityServiceTierIsSent(t *testing.T) {
 		}
 	}
 }
+
+func TestImagesAreSentAsInputImageParts(t *testing.T) {
+	os.Setenv("OPENAI_TOKEN", "test-token")
+	defer os.Unsetenv("OPENAI_TOKEN")
+
+	_, request := serveResponse(t, `{"status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hi"}]}]}`)
+
+	p := &Provider{}
+	message := llm.UserWithImages("what is this", llm.Image{MimeType: "image/jpeg", Data: []byte{1, 2, 3}, Detail: llm.ImageDetailLow})
+	if _, err := p.Call("gpt-5.4-mini", []llm.Message{message}, llm.Options{}); err != nil {
+		t.Fatalf("Call returned error: %v", err)
+	}
+
+	content := (*request)["input"].([]any)[0].(map[string]any)["content"].([]any)
+	if len(content) != 2 {
+		t.Fatalf("content = %v, want a text and an image part", content)
+	}
+	image := content[1].(map[string]any)
+	if image["type"] != "input_image" || image["image_url"] != "data:image/jpeg;base64,AQID" || image["detail"] != "low" {
+		t.Errorf("image part = %v", image)
+	}
+}
