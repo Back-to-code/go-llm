@@ -76,6 +76,21 @@ resp, err := model.PromptSingle("Name a color", llm.Options{
 })
 ```
 
+## Images
+
+Images go along with a user message. OpenAI and Google AI Studio models accept them, other providers refuse the prompt.
+
+```go
+screenshot, _ := os.ReadFile("screenshot.jpg")
+resp, err := model.Prompt([]llm.Message{
+    llm.UserWithImages("Is this a 404 page?", llm.Image{
+        MimeType: "image/jpeg",
+        Data:     screenshot,
+        Detail:   llm.ImageDetailLow, // Optional, fewer tokens for less resolution, only sent to OpenAI
+    }),
+}, llm.Options{})
+```
+
 ## Tools
 
 `Prompt` runs the tool loop: it resolves every tool call and sends the results back until the model answers.

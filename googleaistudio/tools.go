@@ -101,16 +101,22 @@ func convertMessages(messages []llm.Message) (contents []Content, systemParts []
 			systemParts = append(systemParts, Part{Text: message.Content})
 
 		case "user":
-			part := Part{Text: message.Content}
+			parts := []Part{}
+			if message.Content != "" || len(message.Images) == 0 {
+				parts = append(parts, Part{Text: message.Content})
+			}
+			for _, image := range message.Images {
+				parts = append(parts, Part{InlineData: &InlineData{MimeType: image.MimeType, Data: image.Data}})
+			}
 			// Gemini rejects a second user turn right after the function responses.
 			if endsWithFunctionResponse(contents) {
-				contents[len(contents)-1].Parts = append(contents[len(contents)-1].Parts, part)
+				contents[len(contents)-1].Parts = append(contents[len(contents)-1].Parts, parts...)
 				continue
 			}
 
 			contents = append(contents, Content{
 				Role:  "user",
-				Parts: []Part{part},
+				Parts: parts,
 			})
 
 		case "assistant":

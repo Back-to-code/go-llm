@@ -33,6 +33,10 @@ func (*Provider) SupportsTools() bool {
 	return false
 }
 
+func (*Provider) SupportsImages() bool {
+	return false
+}
+
 func (*Provider) Call(model string, messages []llm.Message, opts llm.Options) (llm.Turn, error) {
 	requestPayload := struct {
 		Messages       []llm.Message   `json:"messages"`

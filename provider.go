@@ -177,6 +177,7 @@ type Provider interface {
 	SupportsStructuredOutput() bool
 	SupportsStreaming() bool
 	SupportsTools() bool
+	SupportsImages() bool
 }
 
 type Prompter interface {
@@ -199,8 +200,10 @@ func (m *Model) ModelName() string {
 }
 
 func (m *Model) Prompt(messages []Message, options Options) (Response, error) {
-	var err error
-	options, err = options.prepare(false, m.Provider)
+	if err := checkImages(messages, m.Provider); err != nil {
+		return Response{}, err
+	}
+	options, err := options.prepare(false, m.Provider)
 	if err != nil {
 		return Response{}, err
 	}
@@ -236,6 +239,7 @@ func cacheKey(model string, messages []Message, options Options) (string, error)
 	type keyMessage struct {
 		Role       string
 		Content    string
+		Images     []Image `json:",omitempty"`
 		ToolCalls  string
 		ToolCallId string
 	}
@@ -244,6 +248,7 @@ func cacheKey(model string, messages []Message, options Options) (string, error)
 		keyMessages[idx] = keyMessage{
 			Role:       msg.Role,
 			Content:    msg.Content,
+			Images:     msg.Images,
 			ToolCalls:  string(msg.ToolCalls),
 			ToolCallId: msg.ToolCallId,
 		}
@@ -346,8 +351,10 @@ func (m *Model) PromptSingle(message string, options Options) (Response, error) 
 }
 
 func (m *Model) Stream(messages []Message, options Options) (chan string, error) {
-	var err error
-	options, err = options.prepare(true, m.Provider)
+	if err := checkImages(messages, m.Provider); err != nil {
+		return nil, err
+	}
+	options, err := options.prepare(true, m.Provider)
 	if err != nil {
 		return nil, err
 	}

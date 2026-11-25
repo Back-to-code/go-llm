@@ -213,9 +213,41 @@ func (s *stubProvider) Stream(string, []llm.Message, llm.Options) (chan string, 
 func (s *stubProvider) SupportsStructuredOutput() bool { return true }
 func (s *stubProvider) SupportsStreaming() bool        { return true }
 func (s *stubProvider) SupportsTools() bool            { return true }
+func (s *stubProvider) SupportsImages() bool           { return false }
 
 func okCallProvider(value string) func(string, []llm.Message, llm.Options) (llm.Turn, error) {
 	return func(string, []llm.Message, llm.Options) (llm.Turn, error) {
 		return llm.Turn{Message: llm.Assistant(value)}, nil
+	}
+}
+
+func TestImagesAreRefusedByAProviderWithoutImageSupport(t *testing.T) {
+	model := &llm.Model{Name: "stub", Provider: &stubProvider{}}
+	_, err := model.Prompt([]llm.Message{llm.UserWithImages("hi", llm.Image{MimeType: "image/png", Data: []byte{1}})}, llm.Options{})
+	if err == nil || !strings.Contains(err.Error(), "does not support images") {
+		t.Fatalf("err = %v, want an unsupported images error", err)
+	}
+}
+
+func TestInterjectedImagesAreRefusedByAProviderWithoutImageSupport(t *testing.T) {
+	provider := &stubProvider{callFn: okCallProvider("ok")}
+	model := &llm.Model{Name: "stub", Provider: provider}
+	interject, _ := interjectOnce(1, llm.UserWithImages("look", llm.Image{MimeType: "image/png", Data: []byte{1}}))
+	_, err := model.Prompt([]llm.Message{llm.User("hi")}, llm.Options{Interject: interject})
+	if err == nil || !strings.Contains(err.Error(), "does not support images") {
+		t.Fatalf("err = %v, want an unsupported images error", err)
+	}
+	if provider.calls.Load() != 0 {
+		t.Errorf("provider called %d times, want the images refused before any request", provider.calls.Load())
+	}
+}
+
+func TestImagesOnANonUserMessageAreRefused(t *testing.T) {
+	model := &llm.Model{Name: "stub", Provider: &stubProvider{}}
+	assistant := llm.Assistant("hi")
+	assistant.Images = []llm.Image{{MimeType: "image/png", Data: []byte{1}}}
+	_, err := model.Prompt([]llm.Message{llm.User("hi"), assistant}, llm.Options{})
+	if err == nil || !strings.Contains(err.Error(), "only be sent on user messages") {
+		t.Fatalf("err = %v, want a user messages only error", err)
 	}
 }

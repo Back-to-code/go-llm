@@ -212,3 +212,22 @@ func TestUserMessageAfterFunctionResponsesJoinsTheirTurn(t *testing.T) {
 		t.Errorf("last turn parts = %+v", parts)
 	}
 }
+
+func TestImagesAreSentAsInlineData(t *testing.T) {
+	request := serveResponse(t, textResponse)
+
+	p := &Provider{}
+	message := llm.UserWithImages("what is this", llm.Image{MimeType: "image/png", Data: []byte{1, 2, 3}})
+	if _, err := p.Call("gemini-test", []llm.Message{message}, llm.Options{}); err != nil {
+		t.Fatalf("Call returned error: %v", err)
+	}
+
+	parts := (*request)["contents"].([]any)[0].(map[string]any)["parts"].([]any)
+	if len(parts) != 2 {
+		t.Fatalf("parts = %v, want a text and an image part", parts)
+	}
+	inline := parts[1].(map[string]any)["inlineData"].(map[string]any)
+	if inline["mimeType"] != "image/png" || inline["data"] != "AQID" {
+		t.Errorf("inlineData = %v", inline)
+	}
+}
